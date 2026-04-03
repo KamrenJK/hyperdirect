@@ -1,0 +1,7 @@
+.venv/
+Pilot Data/
+*.tha
+*.tha.json
+thalamus.db
+__pycache__/
+.DS_Store
