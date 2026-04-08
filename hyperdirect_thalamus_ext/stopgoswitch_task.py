@@ -64,12 +64,8 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
     form = Form.build(
         task_config,
         ["Name:", "Value:"],
-        Form.Choice(
-            "Block order",
-            "block_order",
-            [("visual_first", "Visual then Auditory"), ("auditory_first", "Auditory then Visual")],
-            default="visual_first",
-        ),
+        # Use a simple string field to avoid combo-box rendering issues on some Qt builds.
+        Form.String("Block order (visual_first | auditory_first)", "block_order", "visual_first"),
         Form.Constant("Step size", "step_s", 0.050, "s", precision=3),
         Form.Constant("Delay min", "delay_min_s", 0.050, "s", precision=3),
         Form.Constant("Delay max", "delay_max_s", 0.900, "s", precision=3),
