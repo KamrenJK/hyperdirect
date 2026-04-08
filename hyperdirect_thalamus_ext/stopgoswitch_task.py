@@ -321,25 +321,18 @@ async def run(context) -> TaskResult:
         space_down_time = None
         space_release_time = None
 
-        def key_press_handler(e):
-            nonlocal space_down, space_down_time
+        def key_handler(e):
+            nonlocal space_down, space_down_time, space_release_time, response_value, response_time_perf
             try:
                 k = e.key()
             except Exception:
                 return
             if k == Qt.Key.Key_Space:
-                space_down = True
-                if space_down_time is None:
+                if not space_down:
+                    space_down = True
                     space_down_time = time.perf_counter()
-
-        def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_time
-            try:
-                k = e.key()
-            except Exception:
-                return
-            if k == Qt.Key.Key_Space and space_release_time is None:
-                space_release_time = time.perf_counter()
+                if space_release_time is None:
+                    space_release_time = time.perf_counter()
             if response_value is not None:
                 return
             if k == key_left:
@@ -351,8 +344,8 @@ async def run(context) -> TaskResult:
             if response_value is not None:
                 context.process()
 
-        context.widget.key_press_handler = key_press_handler
-        context.widget.key_release_handler = key_release_handler
+        context.widget.key_press_handler = key_handler
+        context.widget.key_release_handler = key_handler
 
         # Wait for space hold
         hold_renderer = _with_counter(
