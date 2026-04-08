@@ -310,10 +310,6 @@ async def run(context) -> TaskResult:
         elif "switch" in tr["trial_type"]:
             tr["delay_s"] = swsd[tr["context"]]
 
-        # jittered timings
-        fix_s = random.uniform(cfg.fixation_min_s, cfg.fixation_max_s)
-        move_s = random.uniform(cfg.move_min_s, cfg.move_max_s)
-
         # Input tracking per trial
         response_value = None
         response_time_perf = None
@@ -358,7 +354,8 @@ async def run(context) -> TaskResult:
         context.widget.update()
         await wait_for(context, lambda: space_down, datetime.timedelta(seconds=300))
 
-        # Fixation (starts when space is held)
+        # Once space is down, begin trial timing immediately.
+        # Show fixation very briefly then movement arrow immediately; GO after jitter (1–1.5 s) from space press.
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
         fix_renderer = _with_counter(
             _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
@@ -368,9 +365,8 @@ async def run(context) -> TaskResult:
         )
         context.widget.renderer = fix_renderer
         context.widget.update()
-        await context.sleep(datetime.timedelta(seconds=fix_s))
 
-        # Movement cue (arrow)
+        # Movement cue immediately after fixation shown
         arrow_renderer = _with_counter(
             _make_arrow_renderer(context.widget, tr["arrow_dir"], cfg.text_size, QColor(255, 255, 255)),
             context.widget,
@@ -380,7 +376,10 @@ async def run(context) -> TaskResult:
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="movement_cue"))
         context.widget.renderer = arrow_renderer
         context.widget.update()
-        await context.sleep(datetime.timedelta(seconds=move_s))
+
+        # GO after jitter since space press
+        go_delay = random.uniform(cfg.move_min_s, cfg.move_max_s)
+        await context.sleep(datetime.timedelta(seconds=go_delay))
 
         # GO cue
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="go"))
@@ -431,7 +430,7 @@ async def run(context) -> TaskResult:
 
         # Response window (ends on left/right press or timeout)
         if stop_type == "switch":
-            timeout_s = tr["delay_s"] + 1.5  # 1.5s after switch cue
+            timeout_s = 1.5  # 1.5s after switch cue
         else:
             timeout_s = cfg.resp_window_s
 
