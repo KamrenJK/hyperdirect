@@ -203,6 +203,45 @@ def _make_circle_renderer(widget: QWidget, radius_px: int, color: QColor) -> typ
     return render
 
 
+async def _show_block_instruction(context, cfg: Config, block: str, ctx: str) -> None:
+    """
+    Brief on-screen tutorial when entering a new block.
+    """
+    if "stopblock" in block:
+        line = "STOP block: cancel response if STOP cue appears."
+    elif "switchblock" in block:
+        line = "SWITCH block: press the opposite button if SWITCH cue appears."
+    elif "control" in block:
+        line = "CONTROL block: ignore later cues; respond to GO as normal."
+    else:
+        line = "Task block."
+
+    if ctx == "visual":
+        cue_line = "Visual cues: STOP = blue circle, SWITCH = orange circle."
+    else:
+        cue_line = "Auditory cues: STOP = high tone, SWITCH = low tone."
+
+    text = f"{block}\n{line}\n{cue_line}\nPress any key to continue."
+    renderer = _make_text_renderer(context.widget, text, cfg.text_size, QColor(255, 255, 255))
+    context.widget.renderer = renderer
+    context.widget.update()
+
+    pressed = False
+    start = datetime.datetime.now()
+    timeout = datetime.timedelta(seconds=6)
+
+    def key_handler(_):
+        nonlocal pressed
+        pressed = True
+        context.process()
+
+    old_handler = context.widget.key_release_handler
+    context.widget.key_release_handler = key_handler
+    while not pressed and datetime.datetime.now() - start < timeout:
+        await context.sleep(datetime.timedelta(milliseconds=50))
+    context.widget.key_release_handler = old_handler
+
+
 def _eval_switch_success(arrow_dir: str, resp: typing.Optional[int]) -> typing.Optional[bool]:
     if resp is None:
         return False
@@ -252,8 +291,12 @@ async def run(context) -> TaskResult:
     import time
     context.widget.key_release_handler = key_handler
 
+    prev_block = None
     for tr_idx in range(int(context.task_config["trial_index"]), len(schedule)):
         tr = schedule[tr_idx]
+        if tr["block"] != prev_block:
+            await _show_block_instruction(context, cfg, tr["block"], tr["context"])
+            prev_block = tr["block"]
         # choose delay from current ladder
         if "stop" in tr["trial_type"]:
             tr["delay_s"] = ssd[tr["context"]]

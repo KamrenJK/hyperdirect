@@ -66,8 +66,13 @@ function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
     n = numel(trials);
     data = struct([]);
 
+    prevBlock = '';
     for t = 1:n
         tr = trials(t);
+        if ~strcmp(prevBlock, tr.block)
+            showBlockInstruction(w, tr.block, tr.context);
+            prevBlock = tr.block;
+        end
         % Select delay from current ladder
         if strcmp(tr.context,'visual')
             if strcmp(tr.type,'stop') || strcmp(tr.type,'stop_ignore')
@@ -185,6 +190,26 @@ function b = makeActiveBlock(ctx)
 
     b.block = [ctx '_active'];
     b.trials = [trialsStop, trialsSwitch]';
+    % Insert instruction callbacks by tagging block name; handled in main loop.
+end
+
+function showBlockInstruction(w, blockName, ctx)
+    if contains(blockName, 'stopblock')
+        line1 = 'STOP block: cancel response if STOP appears.';
+    elseif contains(blockName, 'switchblock')
+        line1 = 'SWITCH block: press the opposite button if SWITCH appears.';
+    else
+        line1 = 'CONTROL block: ignore later cues; respond to GO.';
+    end
+    if strcmp(ctx,'visual')
+        line2 = 'Visual cues: STOP = blue circle, SWITCH = orange circle.';
+    else
+        line2 = 'Auditory cues: STOP = high tone, SWITCH = low tone.';
+    end
+    Screen('TextSize', w, 36);
+    DrawFormattedText(w, sprintf('%s\n\n%s\n%s\n\nPress any key to continue.', blockName, line1, line2), 'center','center', 255);
+    Screen('Flip', w);
+    KbStrokeWait;
 end
 
 function b = makeControlBlock(ctx)
