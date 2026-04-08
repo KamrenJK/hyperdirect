@@ -310,62 +310,14 @@ async def run(context) -> TaskResult:
         elif "switch" in tr["trial_type"]:
             tr["delay_s"] = swsd[tr["context"]]
 
-        # jittered timings
-        fix_s = random.uniform(cfg.fixation_min_s, cfg.fixation_max_s)
-        move_s = random.uniform(cfg.move_min_s, cfg.move_max_s)
-
         # Input tracking per trial
-        response_value = None
-        response_time_perf = None
-        space_down = False
-        space_down_time = None
-        space_release_time = None
-
-        def key_press_handler(e):
-            nonlocal space_down, space_down_time
-            try:
-                k = e.key()
-            except Exception:
-                return
-            if k == Qt.Key.Key_Space:
-                space_down = True
-                if space_down_time is None:
-                    space_down_time = time.perf_counter()
-
-        def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_time
-            try:
-                k = e.key()
-            except Exception:
-                return
-            if k == Qt.Key.Key_Space and space_release_time is None:
-                space_release_time = time.perf_counter()
-            if response_value is not None:
-                return
-            if k == key_left:
-                response_value = 1
-                response_time_perf = time.perf_counter()
-            elif k == key_right:
-                response_value = 2
-                response_time_perf = time.perf_counter()
-            if response_value is not None:
-                context.process()
-
-        context.widget.key_press_handler = key_press_handler
-        context.widget.key_release_handler = key_release_handler
+    response_value = None
+    response_time_perf = None
+    context.widget.key_press_handler = None
+    context.widget.key_release_handler = None
 
         # Wait for space hold
-        hold_renderer = _with_counter(
-            _make_text_renderer(context.widget, "Hold SPACE to start", cfg.text_size, QColor(255, 255, 255)),
-            context.widget,
-            tr_idx,
-            len(schedule),
-        )
-        context.widget.renderer = hold_renderer
-        context.widget.update()
-        await wait_for(context, lambda: space_down, datetime.timedelta(seconds=300))
-
-        # Fixation (starts when space is held)
+        # Fixation (automatic)
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
         fix_renderer = _with_counter(
             _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
@@ -438,7 +390,7 @@ async def run(context) -> TaskResult:
 
         # Response window (ends on left/right press or timeout)
         if stop_type == "switch":
-            timeout_s = tr["delay_s"] + 1.5  # 1.5s after switch cue
+            timeout_s = 1.5  # 1.5s after switch cue
         else:
             timeout_s = cfg.resp_window_s
 
