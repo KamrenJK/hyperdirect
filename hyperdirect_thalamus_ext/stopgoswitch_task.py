@@ -71,8 +71,8 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.Constant("Delay max", "delay_max_s", 0.900, "s", precision=3),
         Form.Constant("Resp window", "resp_window_s", 1.500, "s", precision=3),
         Form.Constant("Cue duration", "cue_duration_s", 0.150, "s", precision=3),
-        Form.Constant("Fix min", "fixation_min_s", 0.500, "s", precision=3),
-        Form.Constant("Fix max", "fixation_max_s", 0.700, "s", precision=3),
+        Form.Constant("Fix min", "fixation_min_s", 1.000, "s", precision=3),
+        Form.Constant("Fix max", "fixation_max_s", 1.500, "s", precision=3),
         Form.Constant("Move min", "move_min_s", 1.000, "s", precision=3),
         Form.Constant("Move max", "move_max_s", 1.500, "s", precision=3),
         Form.Constant("ITI", "iti_s", 0.300, "s", precision=3),
@@ -93,12 +93,12 @@ def _read_cfg(task_config: ObservableCollection) -> Config:
         delay_max_s=float(task_config.get("delay_max_s", 0.900)),
         resp_window_s=float(task_config.get("resp_window_s", 1.500)),
         cue_duration_s=float(task_config.get("cue_duration_s", 0.150)),
-        fixation_min_s=float(task_config.get("fixation_min_s", 0.500)),
-        fixation_max_s=float(task_config.get("fixation_max_s", 0.700)),
-        move_min_s=float(task_config.get("move_min_s", 0.500)),
-        move_max_s=float(task_config.get("move_max_s", 0.700)),
+        fixation_min_s=float(task_config.get("fixation_min_s", 1.000)),
+        fixation_max_s=float(task_config.get("fixation_max_s", 1.500)),
+        move_min_s=float(task_config.get("move_min_s", 1.000)),
+        move_max_s=float(task_config.get("move_max_s", 1.500)),
         iti_s=float(task_config.get("iti_s", 0.300)),
-        go_circle_radius_px=int(task_config.get("go_radius_px", 120)),
+        go_circle_radius_px=int(task_config.get("go_radius_px", 90)),
         text_size=int(task_config.get("text_size", 140)),
         key_left=str(task_config.get("key_left", "q")),
         key_right=str(task_config.get("key_right", "p")),
@@ -250,6 +250,31 @@ def _eval_switch_success(arrow_dir: str, resp: typing.Optional[int]) -> typing.O
     return resp == 1
 
 
+def _with_counter(base_renderer, widget: QWidget, trial_idx: int, total: int) -> typing.Callable[[QPainter], None]:
+    def render(p: QPainter) -> None:
+        base_renderer(p)
+        p.setPen(QColor(200, 200, 200))
+        p.setFont(QFont("Arial", 16))
+        rect = QRect(0, 0, widget.width() - 10, 30)
+        p.drawText(rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop), f"{trial_idx+1}/{total}")
+    return render
+
+
+def _make_arrow_renderer(widget: QWidget, dir_str: str, size: int, color: QColor) -> typing.Callable[[QPainter], None]:
+    def render(p: QPainter) -> None:
+        p.setPen(color)
+        p.setFont(QFont("Arial", int(size)))
+        w, h = widget.width(), widget.height()
+        if dir_str == "left":
+            rect = QRect(int(w * 0.05), 0, int(w * 0.4), h)
+            txt = "←"
+        else:
+            rect = QRect(int(w * 0.55), 0, int(w * 0.4), h)
+            txt = "→"
+        p.drawText(rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), txt)
+    return render
+
+
 @animate(60)
 async def run(context) -> TaskResult:
     assert context.widget is not None, "Requires canvas (non-remote)"
@@ -271,25 +296,7 @@ async def run(context) -> TaskResult:
     key_left = KEY_MAP.get(cfg.key_left.lower(), Qt.Key.Key_Q)
     key_right = KEY_MAP.get(cfg.key_right.lower(), Qt.Key.Key_P)
 
-    def key_handler(e) -> None:
-        nonlocal response_value, response_time_perf
-        if response_value is not None:
-            return
-        try:
-            k = e.key()
-        except Exception:
-            return
-        if k == key_left:
-            response_value = 1
-            response_time_perf = time.perf_counter()
-        elif k == key_right:
-            response_value = 2
-            response_time_perf = time.perf_counter()
-        if response_value is not None:
-            context.process()
-
     import time
-    context.widget.key_release_handler = key_handler
 
     prev_block = None
     for tr_idx in range(int(context.task_config["trial_index"]), len(schedule)):
@@ -307,22 +314,90 @@ async def run(context) -> TaskResult:
         fix_s = random.uniform(cfg.fixation_min_s, cfg.fixation_max_s)
         move_s = random.uniform(cfg.move_min_s, cfg.move_max_s)
 
-        # Fixation
+        # Input tracking per trial
+        response_value = None
+        response_time_perf = None
+        space_down = False
+        space_down_time = None
+        space_release_time = None
+
+        def key_press_handler(e):
+            nonlocal space_down, space_down_time
+            try:
+                k = e.key()
+            except Exception:
+                return
+            if k == Qt.Key.Key_Space:
+                space_down = True
+                if space_down_time is None:
+                    space_down_time = time.perf_counter()
+
+        def key_release_handler(e):
+            nonlocal response_value, response_time_perf, space_release_time
+            try:
+                k = e.key()
+            except Exception:
+                return
+            if k == Qt.Key.Key_Space and space_release_time is None:
+                space_release_time = time.perf_counter()
+            if response_value is not None:
+                return
+            if k == key_left:
+                response_value = 1
+                response_time_perf = time.perf_counter()
+            elif k == key_right:
+                response_value = 2
+                response_time_perf = time.perf_counter()
+            if response_value is not None:
+                context.process()
+
+        context.widget.key_press_handler = key_press_handler
+        context.widget.key_release_handler = key_release_handler
+
+        # Wait for space hold
+        hold_renderer = _with_counter(
+            _make_text_renderer(context.widget, "Hold SPACE to start", cfg.text_size, QColor(255, 255, 255)),
+            context.widget,
+            tr_idx,
+            len(schedule),
+        )
+        context.widget.renderer = hold_renderer
+        context.widget.update()
+        await wait_for(context, lambda: space_down, datetime.timedelta(seconds=300))
+
+        # Fixation (starts when space is held)
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
-        context.widget.renderer = _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255))
+        fix_renderer = _with_counter(
+            _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
+            context.widget,
+            tr_idx,
+            len(schedule),
+        )
+        context.widget.renderer = fix_renderer
         context.widget.update()
         await context.sleep(datetime.timedelta(seconds=fix_s))
 
         # Movement cue (arrow)
-        arrow_txt = "←" if tr["arrow_dir"] == "left" else "→"
+        arrow_renderer = _with_counter(
+            _make_arrow_renderer(context.widget, tr["arrow_dir"], cfg.text_size, QColor(255, 255, 255)),
+            context.widget,
+            tr_idx,
+            len(schedule),
+        )
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="movement_cue"))
-        context.widget.renderer = _make_text_renderer(context.widget, arrow_txt, cfg.text_size, QColor(255, 255, 255))
+        context.widget.renderer = arrow_renderer
         context.widget.update()
         await context.sleep(datetime.timedelta(seconds=move_s))
 
         # GO cue
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="go"))
-        context.widget.renderer = _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255))
+        go_renderer = _with_counter(
+            _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255)),
+            context.widget,
+            tr_idx,
+            len(schedule),
+        )
+        context.widget.renderer = go_renderer
         context.widget.update()
         go_on = time.perf_counter()
         if tr["context"] == "auditory":
@@ -337,14 +412,20 @@ async def run(context) -> TaskResult:
             nonlocal cue_on_perf
             await context.sleep(datetime.timedelta(seconds=float(tr["delay_s"])))
             if stop_type in ("stop", "stop_ignore"):
-                context.widget.renderer = _make_circle_renderer(
-                    context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255)
+                context.widget.renderer = _with_counter(
+                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255)),
+                    context.widget,
+                    tr_idx,
+                    len(schedule),
                 )
                 if tr["context"] == "auditory":
                     tone_stop.play()
             elif stop_type in ("switch", "switch_ignore"):
-                context.widget.renderer = _make_circle_renderer(
-                    context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0)
+                context.widget.renderer = _with_counter(
+                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0)),
+                    context.widget,
+                    tr_idx,
+                    len(schedule),
                 )
                 if tr["context"] == "auditory":
                     tone_switch.play()
@@ -355,13 +436,16 @@ async def run(context) -> TaskResult:
         if stop_type != "go":
             stop_task = asyncio.get_event_loop().create_task(deliver_control_cue())
 
-        # Response window
-        response_value = None
-        response_time_perf = None
+        # Response window (ends on left/right press or timeout)
+        if stop_type == "switch":
+            timeout_s = tr["delay_s"] + 1.5  # 1.5s after switch cue
+        else:
+            timeout_s = cfg.resp_window_s
+
         responded = await wait_for(
             context,
             lambda: response_value is not None,
-            datetime.timedelta(seconds=cfg.resp_window_s),
+            datetime.timedelta(seconds=timeout_s),
         )
         if stop_task:
             try:
@@ -398,6 +482,10 @@ async def run(context) -> TaskResult:
             new_val = _clamp(current + cfg.step_s * step_dir, cfg.delay_min_s, cfg.delay_max_s)
             ladder[tr["context"]] = new_val
 
+        # Optional 200 ms buffer if response occurred on stop/switch to show cue
+        if stop_type in ("stop", "switch") and response_value is not None:
+            await context.sleep(datetime.timedelta(milliseconds=200))
+
         # ITI blank
         context.widget.renderer = lambda p: None
         context.widget.update()
@@ -417,6 +505,7 @@ async def run(context) -> TaskResult:
             "swsd_aud": float(swsd["auditory"]),
             "resp": int(response_value) if response_value is not None else None,
             "rt": float(rt_s) if rt_s is not None else None,
+            "rt_space_release": float(space_release_time - go_on) if space_release_time else None,
             "success": success,
             "cue_on_perf": float(cue_on_perf) if cue_on_perf is not None else None,
             "go_on_perf": float(go_on),
