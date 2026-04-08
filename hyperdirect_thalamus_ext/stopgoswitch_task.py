@@ -73,10 +73,10 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.Constant("Cue duration", "cue_duration_s", 0.150, "s", precision=3),
         Form.Constant("Fix min", "fixation_min_s", 0.500, "s", precision=3),
         Form.Constant("Fix max", "fixation_max_s", 0.700, "s", precision=3),
-        Form.Constant("Move min", "move_min_s", 0.500, "s", precision=3),
-        Form.Constant("Move max", "move_max_s", 0.700, "s", precision=3),
+        Form.Constant("Move min", "move_min_s", 1.000, "s", precision=3),
+        Form.Constant("Move max", "move_max_s", 1.500, "s", precision=3),
         Form.Constant("ITI", "iti_s", 0.300, "s", precision=3),
-        Form.Constant("GO circle radius", "go_radius_px", 120, precision=0),
+        Form.Constant("GO circle radius", "go_radius_px", 90, precision=0),
         Form.Constant("Text size", "text_size", 140, precision=0),
         Form.String("Left key", "key_left", "q"),
         Form.String("Right key", "key_right", "p"),
@@ -116,27 +116,33 @@ class Trial(typing.TypedDict):
 
 
 def _build_block(context: str, active: bool) -> typing.List[Trial]:
+    trials: typing.List[Trial] = []
     if active:
-        types = ["go"] * 60 + ["stop"] * 20 + ["switch"] * 20
-        block_name = f"{context}_active"
+        # Blocked design to reduce cognitive load: STOP block then SWITCH block.
+        stop_block = ["go"] * 30 + ["stop"] * 20
+        switch_block = ["go"] * 30 + ["switch"] * 20
+        random.shuffle(stop_block)
+        random.shuffle(switch_block)
+        sequences = [(stop_block, f"{context}_active_stopblock"), (switch_block, f"{context}_active_switchblock")]
     else:
         stop_n = 8 if context == "visual" else 7
         switch_n = 7 if context == "visual" else 8
-        types = ["stop_ignore"] * stop_n + ["switch_ignore"] * switch_n
-        block_name = f"{context}_control"
-    random.shuffle(types)
-    trials: typing.List[Trial] = []
-    for t in types:
-        trials.append(
-            Trial(
-                block=block_name,
-                context=context,
-                trial_type=t,
-                arrow_dir=random.choice(["left", "right"]),
-                delay_s=0.200,  # placeholder; overwritten per ladder at runtime
-                is_control=not active,
+        control_block = ["stop_ignore"] * stop_n + ["switch_ignore"] * switch_n
+        random.shuffle(control_block)
+        sequences = [(control_block, f"{context}_control")]
+
+    for types, block_name in sequences:
+        for t in types:
+            trials.append(
+                Trial(
+                    block=block_name,
+                    context=context,
+                    trial_type=t,
+                    arrow_dir=random.choice(["left", "right"]),
+                    delay_s=0.200,  # placeholder; overwritten per ladder at runtime
+                    is_control=not active,
+                )
             )
-        )
     return trials
 
 

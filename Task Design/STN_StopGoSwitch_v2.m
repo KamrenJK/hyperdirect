@@ -53,7 +53,7 @@ function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
     orange = [255 140 0];
     fixSize = 80;
     arrowSize = 120;
-    cueRadius = 80;
+    cueRadius = 60; % smaller GO/STOP/SWITCH cues
 
     % Trial schedule build
     blocks = buildBlocks(blockOrder);
@@ -174,12 +174,17 @@ function blocks = buildBlocks(order)
 end
 
 function b = makeActiveBlock(ctx)
-    goN = 60; stopN = 20; switchN = 20;
-    types = [repmat({'go'},1,goN), repmat({'stop'},1,stopN), repmat({'switch'},1,switchN)];
-    types = types(randperm(numel(types)));
-    trials = arrayfun(@(k) makeTrial(types{k}, ctx, false, [ctx '_active']), 1:numel(types));
+    % Blocked design: STOP block then SWITCH block to reduce cognitive load.
+    stopTypes = [repmat({'go'},1,30), repmat({'stop'},1,20)];
+    switchTypes = [repmat({'go'},1,30), repmat({'switch'},1,20)];
+    stopTypes = stopTypes(randperm(numel(stopTypes)));
+    switchTypes = switchTypes(randperm(numel(switchTypes)));
+
+    trialsStop = arrayfun(@(k) makeTrial(stopTypes{k}, ctx, false, [ctx '_active_stopblock']), 1:numel(stopTypes));
+    trialsSwitch = arrayfun(@(k) makeTrial(switchTypes{k}, ctx, false, [ctx '_active_switchblock']), 1:numel(switchTypes));
+
     b.block = [ctx '_active'];
-    b.trials = trials';
+    b.trials = [trialsStop, trialsSwitch]';
 end
 
 function b = makeControlBlock(ctx)
@@ -199,7 +204,7 @@ function tr = makeTrial(type, ctx, isControl, blockName)
     tr.block = blockName;
     tr.dir = ternary(rand < 0.5, 'left', 'right');
     tr.fix = 0.5 + rand*0.2;
-    tr.move = 0.5 + rand*0.2;
+    tr.move = 1.0 + rand*0.5; % 1.0–1.5 s
     % Delays chosen from current ladder at runtime; placeholder set now
     tr.delay = 0.200;
     tr.isControl = isControl;
