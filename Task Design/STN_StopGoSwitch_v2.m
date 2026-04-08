@@ -21,13 +21,16 @@
 % Key mapping: left response = keyboard '1!', right response = '2@'.
 % SWITCH rule: press the opposite of the instructed arrow if SWITCH cue appears.
 
-function data = STN_StopGoSwitch_v2(blockOrder)
+function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
     % blockOrder: 'visual_first' (default) or 'auditory_first'
+    % leftKeyName/rightKeyName: optional KbName strings (default 'q'/'p')
     if nargin < 1, blockOrder = 'visual_first'; end
+    if nargin < 2, leftKeyName = 'q'; end
+    if nargin < 3, rightKeyName = 'p'; end
 
     KbName('UnifyKeyNames');
-    keyLeft  = KbName('1!');
-    keyRight = KbName('2@');
+    keyLeft  = KbName(leftKeyName);
+    keyRight = KbName(rightKeyName);
     escapeKey = KbName('ESCAPE');
 
     % Ladder params

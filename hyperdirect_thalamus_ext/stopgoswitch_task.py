@@ -31,8 +31,12 @@ from thalamus.task_controller.util import animate, wait_for, TaskResult
 from thalamus import task_controller_pb2
 from thalamus.config import ObservableCollection
 
-KEY_LEFT = Qt.Key.Key_1
-KEY_RIGHT = Qt.Key.Key_2
+KEY_MAP = {
+    "1": Qt.Key.Key_1,
+    "2": Qt.Key.Key_2,
+    "q": Qt.Key.Key_Q,
+    "p": Qt.Key.Key_P,
+}
 
 
 class Config(typing.NamedTuple):
@@ -49,6 +53,8 @@ class Config(typing.NamedTuple):
     iti_s: float
     go_circle_radius_px: int
     text_size: int
+    key_left: str
+    key_right: str
 
 
 def create_widget(task_config: ObservableCollection) -> QWidget:
@@ -76,6 +82,8 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.Constant("ITI", "iti_s", 0.300, "s", precision=3),
         Form.Constant("GO circle radius", "go_radius_px", 120, precision=0),
         Form.Constant("Text size", "text_size", 140, precision=0),
+        Form.String("Left key", "key_left", "q"),
+        Form.String("Right key", "key_right", "p"),
     )
     layout.addWidget(form)
     return w
@@ -96,6 +104,8 @@ def _read_cfg(task_config: ObservableCollection) -> Config:
         iti_s=float(task_config.get("iti_s", 0.300)),
         go_circle_radius_px=int(task_config.get("go_radius_px", 120)),
         text_size=int(task_config.get("text_size", 140)),
+        key_left=str(task_config.get("key_left", "q")),
+        key_right=str(task_config.get("key_right", "p")),
     )
 
 
@@ -217,6 +227,9 @@ async def run(context) -> TaskResult:
     tone_stop = QSound(_ensure_tone(1000, cfg.cue_duration_s))
     tone_switch = QSound(_ensure_tone(400, cfg.cue_duration_s))
 
+    key_left = KEY_MAP.get(cfg.key_left.lower(), Qt.Key.Key_Q)
+    key_right = KEY_MAP.get(cfg.key_right.lower(), Qt.Key.Key_P)
+
     def key_handler(e) -> None:
         nonlocal response_value, response_time_perf
         if response_value is not None:
@@ -225,10 +238,10 @@ async def run(context) -> TaskResult:
             k = e.key()
         except Exception:
             return
-        if k == KEY_LEFT:
+        if k == key_left:
             response_value = 1
             response_time_perf = time.perf_counter()
-        elif k == KEY_RIGHT:
+        elif k == key_right:
             response_value = 2
             response_time_perf = time.perf_counter()
         if response_value is not None:
