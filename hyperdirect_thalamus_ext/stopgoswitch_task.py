@@ -311,51 +311,13 @@ async def run(context) -> TaskResult:
             tr["delay_s"] = swsd[tr["context"]]
 
         # Input tracking per trial
-        response_value = None
-        response_time_perf = None
-        space_down = False
-        space_down_time = None
-        space_release_time = None
-
-        def key_handler(e):
-            nonlocal space_down, space_down_time, space_release_time, response_value, response_time_perf
-            try:
-                k = e.key()
-            except Exception:
-                return
-            if k == Qt.Key.Key_Space:
-                if not space_down:
-                    space_down = True
-                    space_down_time = time.perf_counter()
-                if space_release_time is None:
-                    space_release_time = time.perf_counter()
-            if response_value is not None:
-                return
-            if k == key_left:
-                response_value = 1
-                response_time_perf = time.perf_counter()
-            elif k == key_right:
-                response_value = 2
-                response_time_perf = time.perf_counter()
-            if response_value is not None:
-                context.process()
-
-        context.widget.key_press_handler = key_handler
-        context.widget.key_release_handler = key_handler
+    response_value = None
+    response_time_perf = None
+    context.widget.key_press_handler = None
+    context.widget.key_release_handler = None
 
         # Wait for space hold
-        hold_renderer = _with_counter(
-            _make_text_renderer(context.widget, "Hold SPACE to start", cfg.text_size, QColor(255, 255, 255)),
-            context.widget,
-            tr_idx,
-            len(schedule),
-        )
-        context.widget.renderer = hold_renderer
-        context.widget.update()
-        await wait_for(context, lambda: space_down, datetime.timedelta(seconds=300))
-
-        # Once space is down, begin trial timing immediately.
-        # Show fixation very briefly then movement arrow immediately; GO after jitter (1–1.5 s) from space press.
+        # Fixation (automatic)
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
         fix_renderer = _with_counter(
             _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
@@ -365,8 +327,9 @@ async def run(context) -> TaskResult:
         )
         context.widget.renderer = fix_renderer
         context.widget.update()
+        await context.sleep(datetime.timedelta(seconds=fix_s))
 
-        # Movement cue immediately after fixation shown
+        # Movement cue (arrow)
         arrow_renderer = _with_counter(
             _make_arrow_renderer(context.widget, tr["arrow_dir"], cfg.text_size, QColor(255, 255, 255)),
             context.widget,
@@ -376,10 +339,7 @@ async def run(context) -> TaskResult:
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="movement_cue"))
         context.widget.renderer = arrow_renderer
         context.widget.update()
-
-        # GO after jitter since space press
-        go_delay = random.uniform(cfg.move_min_s, cfg.move_max_s)
-        await context.sleep(datetime.timedelta(seconds=go_delay))
+        await context.sleep(datetime.timedelta(seconds=move_s))
 
         # GO cue
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="go"))
