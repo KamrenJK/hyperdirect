@@ -3,8 +3,8 @@
 % Requires Psychtoolbox.
 %
 % Trial structure (per protocol):
-%   Fixation 500-700 ms (jitter) ->
-%   Movement cue (left/right arrow) 500-700 ms ->
+%   Fixation 1000-1500 ms (jitter) after space is held ->
+%   Movement cue (left/right arrow) 1000-1500 ms ->
 %   GO cue (150 ms) and response window starts (1500 ms window from GO) ->
 %   STOP or SWITCH cue after adaptive delay (SSD or SwSD), 150 ms duration.
 %
@@ -88,54 +88,88 @@ function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
             end
         end
 
-        % Fixation
-        drawFix(w, rect, white, fixSize);
-        WaitSecs(tr.fix);
+    % Hold space to start trial
+    drawOverlay(w, rect, sprintf('%d/%d', t, n));
+    Screen('TextSize', w, fixSize);
+    DrawFormattedText(w, 'Hold SPACE to start', 'center','center', white);
+    Screen('Flip', w);
+    while true
+        [pressed, pressTime, keyCode] = KbCheck;
+        if pressed && keyCode(KbName('SPACE'))
+            spaceDownTime = pressTime;
+            break;
+        end
+    end
 
-        % Movement cue (arrow)
-        drawArrow(w, rect, tr.dir, white, arrowSize);
-        WaitSecs(tr.move);
+    % Fixation (starts once space held)
+    drawFix(w, rect, white, fixSize, t, n);
+    WaitSecs(tr.fix);
 
-        % GO cue onset
-        goOn = Screen('Flip', w);
-        drawCircle(w, rect, white, cueRadius);
-        Screen('Flip', w, goOn + 0.001); % show for duration but window stays
+    % Movement cue (arrow offset to left/right half)
+    drawArrow(w, rect, tr.dir, white, arrowSize, t, n);
+    WaitSecs(tr.move);
 
-        % Schedule STOP/SWITCH
-        cueOn = NaN; cueType = tr.type;
-        resp = NaN; rt = NaN; success = NaN;
-        deadline = goOn + 1.5;
+    % GO cue onset
+    drawCircle(w, rect, white, cueRadius, t, n);
+    goOn = Screen('Flip', w);
+    rtSpace = NaN; rt = NaN; resp = NaN; success = NaN;
 
-        % Wait for SSD/SwSD then show cue if needed
-        if ismember(cueType, {'stop','switch','stop_ignore','switch_ignore'})
-            WaitSecs(tr.delay);
+    cueOn = NaN; cueType = tr.type; cueShown = false;
+    stopDeadline = goOn + 1.5; % for stop and go
+    switchDeadline = NaN;
+
+    % Response loop with cue scheduling
+    while true
+        nowT = GetSecs;
+        % Show stop/switch cue when its time
+        if ~cueShown && ismember(cueType, {'stop','switch','stop_ignore','switch_ignore'}) && nowT - goOn >= tr.delay
             if strcmp(cueType,'stop') || strcmp(cueType,'stop_ignore')
-                drawCircle(w, rect, blue, cueRadius);
+                drawCircle(w, rect, blue, cueRadius, t, n);
             else
-                drawCircle(w, rect, orange, cueRadius);
+                drawCircle(w, rect, orange, cueRadius, t, n);
             end
             cueOn = Screen('Flip', w);
-        end
-
-        % Response loop
-        while GetSecs < deadline
-            [pressed, pressTime, keyCode] = KbCheck;
-            if pressed
-                if keyCode(escapeKey), abort(w); end
-                if keyCode(keyLeft), resp = 1; rt = pressTime - goOn; break; end
-                if keyCode(keyRight), resp = 2; rt = pressTime - goOn; break; end
+            cueShown = true;
+            if strcmp(cueType,'switch')
+                switchDeadline = cueOn + 1.5;
             end
         end
-        if isnan(rt), rt = NaN; end
+
+        [pressed, pressTime, keyCode] = KbCheck;
+        if pressed
+            if keyCode(escapeKey), abort(w); end
+            if isnan(resp)
+                if keyCode(keyLeft), resp = 1; rt = pressTime - goOn; end
+                if keyCode(keyRight), resp = 2; rt = pressTime - goOn; end
+                if ~isnan(resp), break; end
+            end
+        else
+            keyCode = zeros(size(keyCode));
+        end
+        % space release detection (even if no other key pressed)
+        if isnan(rtSpace) && ~isempty(spaceDownTime) && ~keyCode(KbName('SPACE')) && nowT > goOn
+            rtSpace = nowT - goOn;
+        end
+
+        % timeouts
+        if strcmp(cueType,'switch') && ~isnan(switchDeadline) && nowT >= switchDeadline
+            break;
+        elseif ~strcmp(cueType,'switch') && nowT >= stopDeadline
+            break;
+        end
+        WaitSecs(0.001);
+    end
+    if isnan(rt), rt = NaN; end
+    if isnan(rtSpace), rtSpace = NaN; end
 
         % Determine correctness and update ladders
         success = computeOutcome(tr, resp);
-        if ~tr.isControl
-            if strcmp(tr.context,'visual')
-                if strcmp(cueType,'stop')
-                    SSD.vis = clampDelay(SSD.vis + step*adaptStep(success), minDelay, maxDelay);
-                elseif strcmp(cueType,'switch')
-                    SwSD.vis = clampDelay(SwSD.vis + step*adaptStep(success), minDelay, maxDelay);
+    if ~tr.isControl
+        if strcmp(tr.context,'visual')
+            if strcmp(cueType,'stop')
+                SSD.vis = clampDelay(SSD.vis + step*adaptStep(success), minDelay, maxDelay);
+            elseif strcmp(cueType,'switch')
+                SwSD.vis = clampDelay(SwSD.vis + step*adaptStep(success), minDelay, maxDelay);
                 end
             else
                 if strcmp(cueType,'stop')
@@ -146,8 +180,13 @@ function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
             end
         end
 
-        % Log trial
-        data(t).block      = tr.block;
+    % Brief buffer after failed stop/switch to show cue
+    if ismember(cueType, {'stop','switch'}) && ~isnan(resp)
+        WaitSecs(0.2);
+    end
+
+    % Log trial
+    data(t).block      = tr.block;
         data(t).context    = tr.context;
         data(t).type       = tr.type;
         data(t).dir        = tr.dir;
@@ -158,6 +197,7 @@ function data = STN_StopGoSwitch_v2(blockOrder, leftKeyName, rightKeyName)
         data(t).swsd_aud   = SwSD.aud;
         data(t).resp       = resp;
         data(t).rt         = rt;
+        data(t).rt_space   = rtSpace;
         data(t).success    = success;
         data(t).go_onset   = goOn;
         data(t).cue_onset  = cueOn;
@@ -228,33 +268,39 @@ function tr = makeTrial(type, ctx, isControl, blockName)
     tr.context = ctx;
     tr.block = blockName;
     tr.dir = ternary(rand < 0.5, 'left', 'right');
-    tr.fix = 0.5 + rand*0.2;
+    tr.fix = 1.0 + rand*0.5;  % 1.0–1.5 s
     tr.move = 1.0 + rand*0.5; % 1.0–1.5 s
     % Delays chosen from current ladder at runtime; placeholder set now
     tr.delay = 0.200;
     tr.isControl = isControl;
 end
 
-function drawFix(w, rect, color, sz)
+function drawFix(w, rect, color, sz, trialIdx, total)
     Screen('TextSize', w, sz);
     DrawFormattedText(w, '+', 'center','center', color);
+    drawOverlay(w, rect, trialIdx, total);
     Screen('Flip', w);
 end
 
-function drawArrow(w, rect, dir, color, sz)
+function drawArrow(w, rect, dir, color, sz, trialIdx, total)
     Screen('TextSize', w, sz);
+    [cx, cy] = RectCenter(rect);
     if strcmp(dir,'left')
-        DrawFormattedText(w, '\leftarrow', 'center','center', color);
+        x = rect(1) + (rect(3)-rect(1))*0.25;
+        DrawFormattedText(w, '\leftarrow', x, cy-0.5*sz, color);
     else
-        DrawFormattedText(w, '\rightarrow', 'center','center', color);
+        x = rect(1) + (rect(3)-rect(1))*0.75;
+        DrawFormattedText(w, '\rightarrow', x, cy-0.5*sz, color);
     end
+    drawOverlay(w, rect, trialIdx, total);
     Screen('Flip', w);
 end
 
-function drawCircle(w, rect, color, radius)
+function drawCircle(w, rect, color, radius, trialIdx, total)
     [cx, cy] = RectCenter(rect);
     base = [cx-radius, cy-radius, cx+radius, cy+radius];
     Screen('FillOval', w, color, base);
+    drawOverlay(w, rect, trialIdx, total);
 end
 
 function val = clampDelay(v, lo, hi)
@@ -291,4 +337,9 @@ end
 
 function abort(w)
     ShowCursor; ListenChar(0); Screen('CloseAll'); error('User aborted.');
+end
+
+function drawOverlay(w, rect, trialIdx, total)
+    Screen('TextSize', w, 20);
+    DrawFormattedText(w, sprintf('%d/%d', trialIdx, total), rect(3)-150, rect(2)+20, [200 200 200]);
 end
