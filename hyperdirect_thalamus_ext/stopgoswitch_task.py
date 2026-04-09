@@ -299,7 +299,8 @@ async def run(context) -> TaskResult:
     import time
 
     prev_block = None
-    for tr_idx in range(int(context.task_config["trial_index"]), len(schedule)):
+    total_trials = len(schedule)
+    for tr_idx in range(int(context.task_config["trial_index"]), total_trials):
         tr = schedule[tr_idx]
         if tr["block"] != prev_block:
             await _show_block_instruction(context, cfg, tr["block"], tr["context"])
@@ -500,6 +501,31 @@ async def run(context) -> TaskResult:
                 "timestamp_perf": time.perf_counter(),
             }
             await context.log(json.dumps({"stopgoswitch_v2_abort": abort_evt}))
+
+            # Mark all remaining trials as skipped
+            for skip_idx in range(tr_idx + 1, total_trials):
+                skip_tr = schedule[skip_idx]
+                skip_log = {
+                    "trial_index": skip_idx,
+                    "block": skip_tr["block"],
+                    "context": skip_tr["context"],
+                    "trial_type": skip_tr["trial_type"],
+                    "arrow_dir": skip_tr["arrow_dir"],
+                    "delay_used": float(skip_tr["delay_s"]),
+                    "ssd_vis": float(ssd["visual"]),
+                    "ssd_aud": float(ssd["auditory"]),
+                    "swsd_vis": float(swsd["visual"]),
+                    "swsd_aud": float(swsd["auditory"]),
+                    "resp": None,
+                    "rt": None,
+                    "rt_space_release": None,
+                    "success": None,
+                    "cue_on_perf": None,
+                    "go_on_perf": None,
+                    "skipped": True,
+                }
+                await context.log(json.dumps({"stopgoswitch_v2_trial": skip_log}))
+            context.task_config["trial_index"] = total_trials
             return TaskResult(False)
 
     return TaskResult(True)
