@@ -304,20 +304,23 @@ async def run(context) -> TaskResult:
         if tr["block"] != prev_block:
             await _show_block_instruction(context, cfg, tr["block"], tr["context"])
             prev_block = tr["block"]
+
         # choose delay from current ladder
         if "stop" in tr["trial_type"]:
             tr["delay_s"] = ssd[tr["context"]]
         elif "switch" in tr["trial_type"]:
             tr["delay_s"] = swsd[tr["context"]]
 
+        # jittered timings
+        fix_s = random.uniform(cfg.fixation_min_s, cfg.fixation_max_s)
+        move_s = random.uniform(cfg.move_min_s, cfg.move_max_s)
+
         # Input tracking per trial
         response_value = None
         response_time_perf = None
-        context.widget.key_press_handler = None
-        context.widget.key_release_handler = None
+        abort_requested = False
 
-        # Wait for space hold
-        # Fixation (automatic)
+        # Fixation
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
         fix_renderer = _with_counter(
             _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
@@ -329,7 +332,7 @@ async def run(context) -> TaskResult:
         context.widget.update()
         await context.sleep(datetime.timedelta(seconds=fix_s))
 
-        # Movement cue (arrow)
+        # Movement cue
         arrow_renderer = _with_counter(
             _make_arrow_renderer(context.widget, tr["arrow_dir"], cfg.text_size, QColor(255, 255, 255)),
             context.widget,
@@ -355,7 +358,7 @@ async def run(context) -> TaskResult:
         if tr["context"] == "auditory":
             tone_go.play()
 
-        # Schedule STOP/SWITCH cue
+        # STOP/SWITCH cue scheduling
         cue_on_perf = None
         stop_task = None
         stop_type = tr["trial_type"]
@@ -388,15 +391,37 @@ async def run(context) -> TaskResult:
         if stop_type != "go":
             stop_task = asyncio.get_event_loop().create_task(deliver_control_cue())
 
-        # Response window (ends on left/right press or timeout)
-        if stop_type == "switch":
-            timeout_s = 1.5  # 1.5s after switch cue
-        else:
-            timeout_s = cfg.resp_window_s
+        # Response window
+        timeout_s = 1.5 if stop_type == "switch" else cfg.resp_window_s
+
+        def key_handler(e):
+            nonlocal response_value, response_time_perf, abort_requested
+            try:
+                k = e.key()
+                mods = e.modifiers()
+            except Exception:
+                return
+            if mods & Qt.KeyboardModifier.ControlModifier and k == Qt.Key.Key_E:
+                abort_requested = True
+                context.process()
+                return
+            if response_value is not None:
+                return
+            if k == key_left:
+                response_value = 1
+                response_time_perf = time.perf_counter()
+            elif k == key_right:
+                response_value = 2
+                response_time_perf = time.perf_counter()
+            if response_value is not None:
+                context.process()
+
+        context.widget.key_press_handler = key_handler
+        context.widget.key_release_handler = key_handler
 
         responded = await wait_for(
             context,
-            lambda: response_value is not None,
+            lambda: response_value is not None or abort_requested,
             datetime.timedelta(seconds=timeout_s),
         )
         if stop_task:
@@ -426,7 +451,6 @@ async def run(context) -> TaskResult:
                 or (tr["arrow_dir"] == "right" and response_value == 2)
             )
 
-        # Update ladders if active trial
         if not tr["is_control"]:
             ladder = ssd if "stop" in tr["trial_type"] else swsd
             current = ladder[tr["context"]]
@@ -434,16 +458,13 @@ async def run(context) -> TaskResult:
             new_val = _clamp(current + cfg.step_s * step_dir, cfg.delay_min_s, cfg.delay_max_s)
             ladder[tr["context"]] = new_val
 
-        # Optional 200 ms buffer if response occurred on stop/switch to show cue
         if stop_type in ("stop", "switch") and response_value is not None:
             await context.sleep(datetime.timedelta(milliseconds=200))
 
-        # ITI blank
         context.widget.renderer = lambda p: None
         context.widget.update()
         await context.sleep(datetime.timedelta(seconds=cfg.iti_s))
 
-        # Log trial
         trial_result = {
             "trial_index": tr_idx,
             "block": tr["block"],
@@ -457,7 +478,7 @@ async def run(context) -> TaskResult:
             "swsd_aud": float(swsd["auditory"]),
             "resp": int(response_value) if response_value is not None else None,
             "rt": float(rt_s) if rt_s is not None else None,
-            "rt_space_release": float(space_release_time - go_on) if space_release_time else None,
+            "rt_space_release": None,
             "success": success,
             "cue_on_perf": float(cue_on_perf) if cue_on_perf is not None else None,
             "go_on_perf": float(go_on),
@@ -465,5 +486,17 @@ async def run(context) -> TaskResult:
         context.behav_result = trial_result
         await context.log(json.dumps({"stopgoswitch_v2_trial": trial_result}))
         context.task_config["trial_index"] = tr_idx + 1
+
+        if abort_requested:
+            abort_evt = {
+                "task_abort": True,
+                "trial_index": tr_idx,
+                "block": tr["block"],
+                "context": tr["context"],
+                "trial_type": tr["trial_type"],
+                "timestamp_perf": time.perf_counter(),
+            }
+            await context.log(json.dumps({"stopgoswitch_v2_abort": abort_evt}))
+            return TaskResult(False)
 
     return TaskResult(True)
