@@ -119,6 +119,7 @@ def _make_figures(trials: List[dict], out_dir: Path, session_name: str) -> None:
     ssd_vis_col = next((c for c in ["ssd_vis", "ssdVisEnd"] if c in df.columns), None)
     ssd_aud_col = next((c for c in ["ssd_aud", "ssdAudEnd"] if c in df.columns), None)
     success_col = next((c for c in ["success", "stopSuccess"] if c in df.columns), None)
+    trial_idx_col = "trial_index" if "trial_index" in df.columns else df.index
 
     # RT histogram (only trials with a response)
     rt_df = df[df[rt_col].notna()]
@@ -143,6 +144,21 @@ def _make_figures(trials: List[dict], out_dir: Path, session_name: str) -> None:
         plt.legend()
         plt.tight_layout()
         plt.savefig(out_dir / "ssd_ladders.png", dpi=150)
+        plt.close()
+
+    # Timeline: trial_type over time with accuracy
+    if "trial_type" in df.columns:
+        plt.figure(figsize=(10, 3.5))
+        y_order = {name: i for i, name in enumerate(sorted(df["trial_type"].dropna().unique()))}
+        y_vals = df["trial_type"].map(y_order)
+        colors = df[success_col].map({True: "#55A868", False: "#C44E52", None: "#8C8C8C"}) if success_col else "#4C72B0"
+        plt.scatter(df[trial_idx_col], y_vals, c=colors, s=30, alpha=0.8)
+        plt.yticks(list(y_order.values()), list(y_order.keys()))
+        plt.xlabel("Trial #")
+        plt.ylabel("Trial type")
+        plt.title(f"Trial timeline (color = success) — {session_name}")
+        plt.tight_layout()
+        plt.savefig(out_dir / "timeline.png", dpi=150)
         plt.close()
 
     # Stop success rate by modality
@@ -173,6 +189,31 @@ def _make_figures(trials: List[dict], out_dir: Path, session_name: str) -> None:
             plt.tight_layout()
             plt.savefig(out_dir / "stop_success.png", dpi=150)
             plt.close()
+
+    # Summary stats text file
+    out_dir.mkdir(parents=True, exist_ok=True)
+    duration = None
+    if "cue_on_perf" in df.columns or "go_on_perf" in df.columns:
+        times = pd.concat(
+            [df.get("cue_on_perf", pd.Series(dtype=float)), df.get("go_on_perf", pd.Series(dtype=float))]
+        )
+        times = times.dropna()
+        if not times.empty:
+            duration = float(times.max() - times.min())
+    n_trials = len(df)
+    acc = None
+    if success_col and success_col in df.columns:
+        valid = df[df[success_col].notna()]
+        if not valid.empty:
+            acc = float(valid[success_col].mean())
+
+    with (out_dir / "summary.txt").open("w") as f:
+        f.write(f"Session: {session_name}\n")
+        f.write(f"Trials logged: {n_trials}\n")
+        if duration is not None:
+            f.write(f"Approx duration (s): {duration:.2f}\n")
+        if acc is not None:
+            f.write(f"Overall accuracy: {acc*100:.1f}%\n")
 
 
 def main():
