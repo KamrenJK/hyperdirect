@@ -401,10 +401,12 @@ async def run(context) -> TaskResult:
                 mods = e.modifiers()
             except Exception:
                 return
-            if mods & Qt.KeyboardModifier.ControlModifier and k == Qt.Key.Key_E:
+
+            if (mods & Qt.KeyboardModifier.ControlModifier) and k == Qt.Key.Key_E:
                 abort_requested = True
                 context.process()
                 return
+
             if response_value is not None:
                 return
             if k == key_left:
@@ -416,6 +418,7 @@ async def run(context) -> TaskResult:
             if response_value is not None:
                 context.process()
 
+        # Register handler on both press and release for reliability
         context.widget.key_press_handler = key_handler
         context.widget.key_release_handler = key_handler
 
