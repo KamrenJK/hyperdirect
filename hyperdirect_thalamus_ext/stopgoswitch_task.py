@@ -395,12 +395,9 @@ async def run(context) -> TaskResult:
                     tone_switch.play()
             context.widget.update()
             cue_on_perf = time.perf_counter()
-            # Visual STOP cue duration stays cfg.cue_duration_s; visual SWITCH now persists (no timeout)
-            if tr["context"] == "visual" and stop_type in ("stop", "stop_ignore"):
+            # Visual cues stay for cue_duration_s; auditory uses tone only
+            if tr["context"] == "visual":
                 await context.sleep(datetime.timedelta(seconds=cfg.cue_duration_s))
-            else:
-                # For SWITCH visual and all auditory, keep cue/arrow up until trial ends
-                pass
 
         if stop_type != "go":
             stop_task = asyncio.get_event_loop().create_task(deliver_control_cue())
