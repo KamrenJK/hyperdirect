@@ -298,7 +298,34 @@ async def run(context) -> TaskResult:
 
     prev_block = None
     total_trials = len(schedule)
+    skip_block_indices: set[int] = set()
     for tr_idx in range(int(context.task_config["trial_index"]), total_trials):
+        # If this trial has been pre-marked to skip (e.g., via Cmd+B), log and continue.
+        if tr_idx in skip_block_indices:
+            tr = schedule[tr_idx]
+            skip_log = {
+                "trial_index": tr_idx,
+                "block": tr["block"],
+                "context": tr["context"],
+                "trial_type": tr["trial_type"],
+                "arrow_dir": tr["arrow_dir"],
+                "delay_used": float(tr["delay_s"]),
+                "ssd_vis": float(ssd["visual"]),
+                "ssd_aud": float(ssd["auditory"]),
+                "swsd_vis": float(swsd["visual"]),
+                "swsd_aud": float(swsd["auditory"]),
+                "resp": None,
+                "rt": None,
+                "rt_space_release": None,
+                "success": None,
+                "cue_on_perf": None,
+                "go_on_perf": None,
+                "skipped": True,
+            }
+            await context.log(json.dumps({"stopgoswitch_v2_trial": skip_log}))
+            context.task_config["trial_index"] = tr_idx + 1
+            continue
+
         tr = schedule[tr_idx]
         if tr["block"] != prev_block:
             await _show_block_instruction(context, cfg, tr["block"], tr["context"])
@@ -318,6 +345,7 @@ async def run(context) -> TaskResult:
         response_value = None
         response_time_perf = None
         abort_requested = False
+        skip_block_requested = False
 
         # Fixation
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
@@ -410,7 +438,7 @@ async def run(context) -> TaskResult:
             timeout_s = cfg.resp_window_s
 
         def key_handler(e):
-            nonlocal response_value, response_time_perf, abort_requested
+            nonlocal response_value, response_time_perf, abort_requested, skip_block_requested
             try:
                 k = e.key()
                 mods = e.modifiers()
@@ -419,6 +447,16 @@ async def run(context) -> TaskResult:
 
             if (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)) and k == Qt.Key.Key_E:
                 abort_requested = True
+                context.process()
+                return
+            if (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)) and k == Qt.Key.Key_B:
+                current_block = tr["block"]
+                for future_idx in range(tr_idx, total_trials):
+                    if schedule[future_idx]["block"] == current_block:
+                        skip_block_indices.add(future_idx)
+                    else:
+                        break
+                skip_block_requested = True
                 context.process()
                 return
 
@@ -439,7 +477,7 @@ async def run(context) -> TaskResult:
 
         responded = await wait_for(
             context,
-            lambda: response_value is not None or abort_requested,
+            lambda: response_value is not None or abort_requested or skip_block_requested,
             datetime.timedelta(seconds=timeout_s),
         )
         if stop_task:
@@ -453,8 +491,12 @@ async def run(context) -> TaskResult:
             rt_s = response_time_perf - go_on
 
         # Outcome logic
+        skipped_flag = skip_block_requested or (tr_idx in skip_block_indices)
+
         success = None
-        if tr["trial_type"] == "go":
+        if skipped_flag:
+            success = None
+        elif tr["trial_type"] == "go":
             success = response_value is not None and (
                 (tr["arrow_dir"] == "left" and response_value == 1)
                 or (tr["arrow_dir"] == "right" and response_value == 2)
@@ -469,14 +511,14 @@ async def run(context) -> TaskResult:
                 or (tr["arrow_dir"] == "right" and response_value == 2)
             )
 
-        if not tr["is_control"]:
+        if not tr["is_control"] and not skipped_flag:
             ladder = ssd if "stop" in tr["trial_type"] else swsd
             current = ladder[tr["context"]]
             step_dir = 1 if success else -1
             new_val = _clamp(current + cfg.step_s * step_dir, cfg.delay_min_s, cfg.delay_max_s)
             ladder[tr["context"]] = new_val
 
-        if stop_type in ("stop", "switch") and response_value is not None:
+        if stop_type in ("stop", "switch") and response_value is not None and not skipped_flag:
             await context.sleep(datetime.timedelta(milliseconds=200))
 
         context.widget.renderer = lambda p: None
@@ -500,6 +542,7 @@ async def run(context) -> TaskResult:
             "success": success,
             "cue_on_perf": float(cue_on_perf) if cue_on_perf is not None else None,
             "go_on_perf": float(go_on),
+            "skipped": skipped_flag,
         }
         context.behav_result = trial_result
         await context.log(json.dumps({"stopgoswitch_v2_trial": trial_result}))
