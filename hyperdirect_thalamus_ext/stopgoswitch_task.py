@@ -402,7 +402,7 @@ async def run(context) -> TaskResult:
             except Exception:
                 return
 
-            if (mods & Qt.KeyboardModifier.ControlModifier) and k == Qt.Key.Key_E:
+            if (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)) and k == Qt.Key.Key_E:
                 abort_requested = True
                 context.process()
                 return
