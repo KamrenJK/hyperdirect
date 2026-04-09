@@ -227,8 +227,6 @@ async def _show_block_instruction(context, cfg: Config, block: str, ctx: str) ->
     context.widget.update()
 
     pressed = False
-    start = datetime.datetime.now()
-    timeout = datetime.timedelta(seconds=6)
 
     def key_handler(_):
         nonlocal pressed
@@ -237,7 +235,7 @@ async def _show_block_instruction(context, cfg: Config, block: str, ctx: str) ->
 
     old_handler = context.widget.key_release_handler
     context.widget.key_release_handler = key_handler
-    while not pressed and datetime.datetime.now() - start < timeout:
+    while not pressed:
         await context.sleep(datetime.timedelta(milliseconds=50))
     context.widget.key_release_handler = old_handler
 

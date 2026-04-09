@@ -46,13 +46,22 @@ This repo provides Thalamus task-controller extensions for intraoperative action
    - STOPGO: `PYTHONPATH=. python -m hyperdirect_thalamus_ext._smoke_test_stopgo` (no hardware).  
    - STOP/GO/SWITCH: run a short pilot block (e.g., 10 trials) with `goal=10` to verify cues and key mapping.
 
-## Analyze recorded sessions
-- STOPGO: use `analyze_tha.py` to hydrate and plot:
-  ```bash
-  PYTHONPATH=. python analyze_tha.py --tha /path/to/session.tha --out-root "Pilot Data/figures"
-  ```
-  Outputs PNGs in `Pilot Data/figures/<session>/`.
-- STOP/GO/SWITCH v2: after hydrate, parse JSONL entries with key `stopgoswitch_v2_trial` for RT, success, ladder snapshots (`ssd_*`, `swsd_*`).
+## Analyze recorded sessions (STOPGO + STOP/GO/SWITCH v2)
+`analyze_tha.py` now understands both schemas (`stopgo_trial` and `stopgoswitch_v2_trial`), reading directly from the hydrated H5.
+
+Recommended headless invocation (avoids macOS GUI backend issues):
+```bash
+cd /Users/kamrenkhan/Desktop/Research/RESTORE/Project/Hyperdirect
+source ../Thalamus/venv-thalamus/bin/activate   # ensure patched Thalamus env
+MPLBACKEND=Agg MPLCONFIGDIR=/tmp/mplconfig PYTHONPATH=. \
+python analyze_tha.py --tha /path/to/session.tha --out-root "Pilot Data/figures"
+```
+Outputs in `Pilot Data/figures/<session>/`:
+- `rt_hist.png`
+- `ssd_ladders.png` (auto-detects SSD column names for either task)
+- `timeline.png` (trial # vs trial_type, color-coded by success)
+- `stop_success.png`
+- `summary.txt` (trial count, approximate duration, overall accuracy)
 
 ## Tips for piloting
 - Start with a short block (e.g., 10 trials) to confirm audio routing and key mapping.  
