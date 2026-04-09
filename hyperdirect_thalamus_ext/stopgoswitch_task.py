@@ -269,7 +269,7 @@ def _make_arrow_renderer(widget: QWidget, dir_str: str, size: int, color: QColor
         else:
             rect = QRect(int(w * 0.55), 0, int(w * 0.4), h)
             txt = "→"
-        p.drawText(rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), txt)
+        p.drawText(rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter), txt)
     return render
 
 
