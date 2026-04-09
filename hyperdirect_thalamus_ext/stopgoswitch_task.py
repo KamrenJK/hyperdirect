@@ -345,17 +345,21 @@ async def run(context) -> TaskResult:
 
         # GO cue
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="go"))
-        # Keep the arrow visible; draw GO cue atop it via a composite renderer.
-        def composite_go(p):
-            arrow_renderer(p)
-            _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255))(p)
+        # Visual GO only in visual context; auditory GO only in auditory context
+        if tr["context"] == "visual":
+            def composite_go(p):
+                arrow_renderer(p)
+                _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255))(p)
 
-        go_renderer = _with_counter(composite_go, context.widget, tr_idx, len(schedule))
-        context.widget.renderer = go_renderer
-        context.widget.update()
-        go_on = time.perf_counter()
-        if tr["context"] == "auditory":
+            go_renderer = _with_counter(composite_go, context.widget, tr_idx, len(schedule))
+            context.widget.renderer = go_renderer
+            context.widget.update()
+        else:
+            # auditory: keep arrow only, play tone
+            context.widget.renderer = arrow_renderer
+            context.widget.update()
             tone_go.play()
+        go_on = time.perf_counter()
 
         # STOP/SWITCH cue scheduling
         cue_on_perf = None
@@ -366,24 +370,37 @@ async def run(context) -> TaskResult:
             nonlocal cue_on_perf
             await context.sleep(datetime.timedelta(seconds=float(tr["delay_s"])))
             if stop_type in ("stop", "stop_ignore"):
-                def composite_stop(p):
-                    arrow_renderer(p)
-                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255))(p)
+                if tr["context"] == "visual":
+                    def composite_stop(p):
+                        arrow_renderer(p)
+                        _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255))(p)
 
-                context.widget.renderer = _with_counter(composite_stop, context.widget, tr_idx, len(schedule))
+                    context.widget.renderer = _with_counter(composite_stop, context.widget, tr_idx, len(schedule))
+                else:
+                    # auditory: keep arrow only; play STOP tone
+                    context.widget.renderer = arrow_renderer
                 if tr["context"] == "auditory":
                     tone_stop.play()
             elif stop_type in ("switch", "switch_ignore"):
-                def composite_switch(p):
-                    arrow_renderer(p)
-                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0))(p)
+                if tr["context"] == "visual":
+                    def composite_switch(p):
+                        arrow_renderer(p)
+                        _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0))(p)
 
-                context.widget.renderer = _with_counter(composite_switch, context.widget, tr_idx, len(schedule))
+                    context.widget.renderer = _with_counter(composite_switch, context.widget, tr_idx, len(schedule))
+                else:
+                    # auditory: keep arrow only; play SWITCH tone
+                    context.widget.renderer = arrow_renderer
                 if tr["context"] == "auditory":
                     tone_switch.play()
             context.widget.update()
             cue_on_perf = time.perf_counter()
-            await context.sleep(datetime.timedelta(seconds=cfg.cue_duration_s))
+            # Visual STOP cue duration stays cfg.cue_duration_s; visual SWITCH now persists (no timeout)
+            if tr["context"] == "visual" and stop_type in ("stop", "stop_ignore"):
+                await context.sleep(datetime.timedelta(seconds=cfg.cue_duration_s))
+            else:
+                # For SWITCH visual and all auditory, keep cue/arrow up until trial ends
+                pass
 
         if stop_type != "go":
             stop_task = asyncio.get_event_loop().create_task(deliver_control_cue())
