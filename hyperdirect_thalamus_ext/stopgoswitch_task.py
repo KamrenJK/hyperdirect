@@ -311,10 +311,10 @@ async def run(context) -> TaskResult:
             tr["delay_s"] = swsd[tr["context"]]
 
         # Input tracking per trial
-    response_value = None
-    response_time_perf = None
-    context.widget.key_press_handler = None
-    context.widget.key_release_handler = None
+        response_value = None
+        response_time_perf = None
+        context.widget.key_press_handler = None
+        context.widget.key_release_handler = None
 
         # Wait for space hold
         # Fixation (automatic)
