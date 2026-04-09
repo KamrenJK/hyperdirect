@@ -391,7 +391,11 @@ async def run(context) -> TaskResult:
             stop_task = asyncio.get_event_loop().create_task(deliver_control_cue())
 
         # Response window
-        timeout_s = 1.5 if stop_type == "switch" else cfg.resp_window_s
+        # For SWITCH/SWITCH_IGNORE, window is measured from SWITCH cue onset (delay + resp_window)
+        if stop_type in ("switch", "switch_ignore"):
+            timeout_s = float(tr["delay_s"] + cfg.resp_window_s)
+        else:
+            timeout_s = cfg.resp_window_s
 
         def key_handler(e):
             nonlocal response_value, response_time_perf, abort_requested
