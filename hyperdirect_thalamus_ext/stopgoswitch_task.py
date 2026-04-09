@@ -345,12 +345,12 @@ async def run(context) -> TaskResult:
 
         # GO cue
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="go"))
-        go_renderer = _with_counter(
-            _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255)),
-            context.widget,
-            tr_idx,
-            len(schedule),
-        )
+        # Keep the arrow visible; draw GO cue atop it via a composite renderer.
+        def composite_go(p):
+            arrow_renderer(p)
+            _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 255, 255))(p)
+
+        go_renderer = _with_counter(composite_go, context.widget, tr_idx, len(schedule))
         context.widget.renderer = go_renderer
         context.widget.update()
         go_on = time.perf_counter()
@@ -366,21 +366,19 @@ async def run(context) -> TaskResult:
             nonlocal cue_on_perf
             await context.sleep(datetime.timedelta(seconds=float(tr["delay_s"])))
             if stop_type in ("stop", "stop_ignore"):
-                context.widget.renderer = _with_counter(
-                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255)),
-                    context.widget,
-                    tr_idx,
-                    len(schedule),
-                )
+                def composite_stop(p):
+                    arrow_renderer(p)
+                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(0, 122, 255))(p)
+
+                context.widget.renderer = _with_counter(composite_stop, context.widget, tr_idx, len(schedule))
                 if tr["context"] == "auditory":
                     tone_stop.play()
             elif stop_type in ("switch", "switch_ignore"):
-                context.widget.renderer = _with_counter(
-                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0)),
-                    context.widget,
-                    tr_idx,
-                    len(schedule),
-                )
+                def composite_switch(p):
+                    arrow_renderer(p)
+                    _make_circle_renderer(context.widget, cfg.go_circle_radius_px, QColor(255, 140, 0))(p)
+
+                context.widget.renderer = _with_counter(composite_switch, context.widget, tr_idx, len(schedule))
                 if tr["context"] == "auditory":
                     tone_switch.play()
             context.widget.update()
