@@ -55,6 +55,14 @@ class Config(typing.NamedTuple):
     text_size: int
     key_left: str
     key_right: str
+    visual_stopblock_go_n: int
+    visual_stopblock_stop_n: int
+    visual_switchblock_go_n: int
+    visual_switchblock_switch_n: int
+    auditory_stopblock_go_n: int
+    auditory_stopblock_stop_n: int
+    auditory_switchblock_go_n: int
+    auditory_switchblock_switch_n: int
 
 
 def create_widget(task_config: ObservableCollection) -> QWidget:
@@ -80,6 +88,14 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.Constant("Text size", "text_size", 140, precision=0),
         Form.String("Left key", "key_left", "q"),
         Form.String("Right key", "key_right", "p"),
+        Form.Constant("Visual GO (STOP block)", "visual_stopblock_go_n", 30, precision=0),
+        Form.Constant("Visual STOP (STOP block)", "visual_stopblock_stop_n", 20, precision=0),
+        Form.Constant("Visual GO (SWITCH block)", "visual_switchblock_go_n", 30, precision=0),
+        Form.Constant("Visual SWITCH (SWITCH block)", "visual_switchblock_switch_n", 20, precision=0),
+        Form.Constant("Auditory GO (STOP block)", "auditory_stopblock_go_n", 30, precision=0),
+        Form.Constant("Auditory STOP (STOP block)", "auditory_stopblock_stop_n", 20, precision=0),
+        Form.Constant("Auditory GO (SWITCH block)", "auditory_switchblock_go_n", 30, precision=0),
+        Form.Constant("Auditory SWITCH (SWITCH block)", "auditory_switchblock_switch_n", 20, precision=0),
     )
     layout.addWidget(form)
     return w
@@ -102,6 +118,14 @@ def _read_cfg(task_config: ObservableCollection) -> Config:
         text_size=int(task_config.get("text_size", 140)),
         key_left=str(task_config.get("key_left", "q")),
         key_right=str(task_config.get("key_right", "p")),
+        visual_stopblock_go_n=int(task_config.get("visual_stopblock_go_n", 30)),
+        visual_stopblock_stop_n=int(task_config.get("visual_stopblock_stop_n", 20)),
+        visual_switchblock_go_n=int(task_config.get("visual_switchblock_go_n", 30)),
+        visual_switchblock_switch_n=int(task_config.get("visual_switchblock_switch_n", 20)),
+        auditory_stopblock_go_n=int(task_config.get("auditory_stopblock_go_n", 30)),
+        auditory_stopblock_stop_n=int(task_config.get("auditory_stopblock_stop_n", 20)),
+        auditory_switchblock_go_n=int(task_config.get("auditory_switchblock_go_n", 30)),
+        auditory_switchblock_switch_n=int(task_config.get("auditory_switchblock_switch_n", 20)),
     )
 
 
@@ -115,12 +139,23 @@ class Trial(typing.TypedDict):
     is_control: bool
 
 
-def _build_block(context: str, active: bool) -> typing.List[Trial]:
+def _build_block(context: str, active: bool, cfg: Config) -> typing.List[Trial]:
     trials: typing.List[Trial] = []
     if active:
         # Blocked design to reduce cognitive load: STOP block then SWITCH block.
-        stop_block = ["go"] * 30 + ["stop"] * 20
-        switch_block = ["go"] * 30 + ["switch"] * 20
+        if context == "visual":
+            stop_go_n = max(0, cfg.visual_stopblock_go_n)
+            stop_stop_n = max(0, cfg.visual_stopblock_stop_n)
+            switch_go_n = max(0, cfg.visual_switchblock_go_n)
+            switch_switch_n = max(0, cfg.visual_switchblock_switch_n)
+        else:
+            stop_go_n = max(0, cfg.auditory_stopblock_go_n)
+            stop_stop_n = max(0, cfg.auditory_stopblock_stop_n)
+            switch_go_n = max(0, cfg.auditory_switchblock_go_n)
+            switch_switch_n = max(0, cfg.auditory_switchblock_switch_n)
+
+        stop_block = ["go"] * stop_go_n + ["stop"] * stop_stop_n
+        switch_block = ["go"] * switch_go_n + ["switch"] * switch_switch_n
         random.shuffle(stop_block)
         random.shuffle(switch_block)
         sequences = [(stop_block, f"{context}_active_stopblock"), (switch_block, f"{context}_active_switchblock")]
@@ -146,12 +181,13 @@ def _build_block(context: str, active: bool) -> typing.List[Trial]:
     return trials
 
 
-def _build_schedule(block_order: str) -> typing.List[Trial]:
+def _build_schedule(cfg: Config) -> typing.List[Trial]:
+    block_order = cfg.block_order
     seq = ["visual", "auditory"] if block_order == "visual_first" else ["auditory", "visual"]
     schedule: typing.List[Trial] = []
     for ctx in seq:
-        schedule.extend(_build_block(ctx, active=True))
-        schedule.extend(_build_block(ctx, active=False))
+        schedule.extend(_build_block(ctx, active=True, cfg=cfg))
+        schedule.extend(_build_block(ctx, active=False, cfg=cfg))
     return schedule
 
 
@@ -282,7 +318,7 @@ async def run(context) -> TaskResult:
     ssd = {"visual": 0.200, "auditory": 0.200}
     swsd = {"visual": 0.200, "auditory": 0.200}
 
-    schedule = _build_schedule(cfg.block_order)
+    schedule = _build_schedule(cfg)
     context.task_config["ntrials"] = len(schedule)
     context.task_config["trial_index"] = context.task_config.get("trial_index", 0)
 
