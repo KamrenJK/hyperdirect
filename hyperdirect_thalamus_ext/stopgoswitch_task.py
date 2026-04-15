@@ -15,6 +15,7 @@ Implements:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import math
@@ -80,7 +81,7 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.String("Block order (visual_first | auditory_first)", "block_order", "visual_first"),
         Form.Constant("Step size", "step_s", 0.050, "s", precision=3),
         Form.Constant("Delay min", "delay_min_s", 0.050, "s", precision=3),
-        Form.Constant("Delay max", "delay_max_s", 0.900, "s", precision=3),
+        Form.Constant("Delay max", "delay_max_s", 0.500, "s", precision=3),
         Form.Constant("Resp window", "resp_window_s", 1.500, "s", precision=3),
         Form.Constant("Cue duration", "cue_duration_s", 0.150, "s", precision=3),
         Form.Constant("Fix min", "fixation_min_s", 1.000, "s", precision=3),
@@ -114,7 +115,7 @@ def _read_cfg(task_config: ObservableCollection) -> Config:
         block_order=str(task_config.get("block_order", "visual_first")),
         step_s=float(task_config.get("step_s", 0.050)),
         delay_min_s=float(task_config.get("delay_min_s", 0.050)),
-        delay_max_s=float(task_config.get("delay_max_s", 0.900)),
+        delay_max_s=float(task_config.get("delay_max_s", 0.500)),
         resp_window_s=float(task_config.get("resp_window_s", 1.500)),
         cue_duration_s=float(task_config.get("cue_duration_s", 0.150)),
         fixation_min_s=float(task_config.get("fixation_min_s", 1.000)),
@@ -546,10 +547,17 @@ async def run(context) -> TaskResult:
         context.widget.key_press_handler = None
         context.widget.key_release_handler = None
         if stop_task:
-            try:
-                await asyncio.wait_for(stop_task, timeout=0.0)
-            except Exception:
-                pass
+            # If response happens before cue delivery, cancel pending cue task so it
+            # cannot fire later during ITI/cleanup.
+            if response_time_perf is not None and cue_on_perf is None:
+                stop_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await stop_task
+            else:
+                try:
+                    await asyncio.wait_for(stop_task, timeout=0.0)
+                except Exception:
+                    pass
 
         rt_s = None
         if responded and response_time_perf is not None:
@@ -579,7 +587,13 @@ async def run(context) -> TaskResult:
         if not tr["is_control"] and not skipped_flag:
             ladder = ssd if "stop" in tr["trial_type"] else swsd
             current = ladder[tr["context"]]
-            step_dir = 1 if success else -1
+            # If subject finishes reach before the control cue appears, shorten delay.
+            reached_before_cue = (
+                response_time_perf is not None
+                and (cue_on_perf is None or response_time_perf < cue_on_perf)
+                and tr["trial_type"] in ("stop", "switch")
+            )
+            step_dir = -1 if reached_before_cue else (1 if success else -1)
             new_val = _clamp(current + cfg.step_s * step_dir, cfg.delay_min_s, cfg.delay_max_s)
             ladder[tr["context"]] = new_val
 
