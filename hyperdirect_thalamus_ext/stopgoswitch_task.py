@@ -398,6 +398,11 @@ async def run(context) -> TaskResult:
         response_time_perf = None
         abort_requested = False
         skip_block_requested = False
+        response_enabled = False
+
+        # Clear any stale handlers outside the active response window.
+        context.widget.key_press_handler = None
+        context.widget.key_release_handler = None
 
         # Fixation
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
@@ -440,6 +445,7 @@ async def run(context) -> TaskResult:
             context.widget.update()
             tone_go.play()
         go_on = time.perf_counter()
+        response_enabled = True
 
         # STOP/SWITCH cue scheduling
         cue_on_perf = None
@@ -512,6 +518,8 @@ async def run(context) -> TaskResult:
                 context.process()
                 return
 
+            if not response_enabled:
+                return
             if response_value is not None:
                 return
             if k == key_left:
@@ -532,6 +540,9 @@ async def run(context) -> TaskResult:
             lambda: response_value is not None or abort_requested or skip_block_requested,
             datetime.timedelta(seconds=timeout_s),
         )
+        response_enabled = False
+        context.widget.key_press_handler = None
+        context.widget.key_release_handler = None
         if stop_task:
             try:
                 await asyncio.wait_for(stop_task, timeout=0.0)
