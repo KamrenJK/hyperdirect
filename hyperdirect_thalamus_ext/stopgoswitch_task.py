@@ -63,6 +63,10 @@ class Config(typing.NamedTuple):
     auditory_stopblock_stop_n: int
     auditory_switchblock_go_n: int
     auditory_switchblock_switch_n: int
+    visual_control_stop_ignore_n: int
+    visual_control_switch_ignore_n: int
+    auditory_control_stop_ignore_n: int
+    auditory_control_switch_ignore_n: int
 
 
 def create_widget(task_config: ObservableCollection) -> QWidget:
@@ -96,6 +100,10 @@ def create_widget(task_config: ObservableCollection) -> QWidget:
         Form.Constant("Auditory STOP (STOP block)", "auditory_stopblock_stop_n", 20, precision=0),
         Form.Constant("Auditory GO (SWITCH block)", "auditory_switchblock_go_n", 30, precision=0),
         Form.Constant("Auditory SWITCH (SWITCH block)", "auditory_switchblock_switch_n", 20, precision=0),
+        Form.Constant("Visual STOP-ignore (control)", "visual_control_stop_ignore_n", 8, precision=0),
+        Form.Constant("Visual SWITCH-ignore (control)", "visual_control_switch_ignore_n", 7, precision=0),
+        Form.Constant("Auditory STOP-ignore (control)", "auditory_control_stop_ignore_n", 7, precision=0),
+        Form.Constant("Auditory SWITCH-ignore (control)", "auditory_control_switch_ignore_n", 8, precision=0),
     )
     layout.addWidget(form)
     return w
@@ -126,6 +134,10 @@ def _read_cfg(task_config: ObservableCollection) -> Config:
         auditory_stopblock_stop_n=int(task_config.get("auditory_stopblock_stop_n", 20)),
         auditory_switchblock_go_n=int(task_config.get("auditory_switchblock_go_n", 30)),
         auditory_switchblock_switch_n=int(task_config.get("auditory_switchblock_switch_n", 20)),
+        visual_control_stop_ignore_n=int(task_config.get("visual_control_stop_ignore_n", 8)),
+        visual_control_switch_ignore_n=int(task_config.get("visual_control_switch_ignore_n", 7)),
+        auditory_control_stop_ignore_n=int(task_config.get("auditory_control_stop_ignore_n", 7)),
+        auditory_control_switch_ignore_n=int(task_config.get("auditory_control_switch_ignore_n", 8)),
     )
 
 
@@ -160,8 +172,12 @@ def _build_block(context: str, active: bool, cfg: Config) -> typing.List[Trial]:
         random.shuffle(switch_block)
         sequences = [(stop_block, f"{context}_active_stopblock"), (switch_block, f"{context}_active_switchblock")]
     else:
-        stop_n = 8 if context == "visual" else 7
-        switch_n = 7 if context == "visual" else 8
+        if context == "visual":
+            stop_n = max(0, cfg.visual_control_stop_ignore_n)
+            switch_n = max(0, cfg.visual_control_switch_ignore_n)
+        else:
+            stop_n = max(0, cfg.auditory_control_stop_ignore_n)
+            switch_n = max(0, cfg.auditory_control_switch_ignore_n)
         control_block = ["stop_ignore"] * stop_n + ["switch_ignore"] * switch_n
         random.shuffle(control_block)
         sequences = [(control_block, f"{context}_control")]
