@@ -414,6 +414,7 @@ async def run(context) -> TaskResult:
         )
         context.widget.renderer = fix_renderer
         context.widget.update()
+        fixation_on_perf = time.perf_counter()
         await context.sleep(datetime.timedelta(seconds=fix_s))
 
         # Movement cue
@@ -426,6 +427,7 @@ async def run(context) -> TaskResult:
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="movement_cue"))
         context.widget.renderer = arrow_renderer
         context.widget.update()
+        movement_cue_on_perf = time.perf_counter()
         await context.sleep(datetime.timedelta(seconds=move_s))
 
         # GO cue
@@ -604,7 +606,12 @@ async def run(context) -> TaskResult:
             "rt_space_release": None,
             "success": success,
             "cue_on_perf": float(cue_on_perf) if cue_on_perf is not None else None,
+            "fixation_on_perf": float(fixation_on_perf),
+            "movement_cue_on_perf": float(movement_cue_on_perf),
             "go_on_perf": float(go_on),
+            "fixation_duration_s": float(fix_s),
+            "movement_cue_duration_s": float(move_s),
+            "movement_to_go_latency_s": float(go_on - movement_cue_on_perf),
             "skipped": skipped_flag,
         }
         context.behav_result = trial_result
