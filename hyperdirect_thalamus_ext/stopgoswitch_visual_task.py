@@ -22,7 +22,7 @@ import random
 import time
 import typing
 
-from thalamus.qt import QColor, QFont, QPainter, QRect, Qt, QWidget, QVBoxLayout
+from thalamus.qt import QColor, QEvent, QFont, QObject, QPainter, QRect, Qt, QWidget, QVBoxLayout
 from thalamus.task_controller.widgets import Form
 from thalamus.task_controller.util import animate, wait_for, TaskResult
 from thalamus import task_controller_pb2
@@ -253,6 +253,33 @@ def _set_key_release_handler(widget: QWidget, handler: typing.Optional[typing.Ca
         pass
 
 
+class _KeyStateTracker(QObject):
+    def __init__(self, parent: typing.Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self.down_keys: typing.Set[int] = set()
+
+    def is_down(self, key: int) -> bool:
+        return int(key) in self.down_keys
+
+    def eventFilter(self, _obj, event) -> bool:  # type: ignore[override]
+        try:
+            et = event.type()
+        except Exception:
+            return False
+
+        if et == QEvent.Type.KeyPress:
+            try:
+                self.down_keys.add(int(event.key()))
+            except Exception:
+                pass
+        elif et == QEvent.Type.KeyRelease:
+            try:
+                self.down_keys.discard(int(event.key()))
+            except Exception:
+                pass
+        return False
+
+
 def _eval_switch_success(arrow_dir: str, resp: typing.Optional[int]) -> bool:
     if resp is None:
         return False
@@ -310,6 +337,8 @@ async def run(context) -> TaskResult:
     key_left = KEY_MAP.get(cfg.key_left.lower(), Qt.Key.Key_Q)
     key_right = KEY_MAP.get(cfg.key_right.lower(), Qt.Key.Key_P)
     home_key = KEY_MAP.get(cfg.home_base_key.lower(), Qt.Key.Key_B)
+    key_tracker = _KeyStateTracker(context.widget)
+    context.widget.installEventFilter(key_tracker)
 
     prev_block = None
     total_trials = len(schedule)
@@ -341,11 +370,8 @@ async def run(context) -> TaskResult:
 
         response_enabled = False
         abort_requested = False
-        home_base_armed = False
-        home_base_down = False
-
         def key_press_handler(e):
-            nonlocal response_value, response_time_perf, abort_requested, home_base_armed, home_base_down
+            nonlocal response_value, response_time_perf, abort_requested
             try:
                 k = e.key()
                 mods = e.modifiers()
@@ -355,13 +381,6 @@ async def run(context) -> TaskResult:
             if (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)) and k == Qt.Key.Key_E:
                 abort_requested = True
                 context.process()
-                return
-
-            if k == home_key:
-                home_base_down = True
-                if not home_base_armed:
-                    home_base_armed = True
-                    context.process()
                 return
 
             if not response_enabled or response_value is not None:
@@ -376,7 +395,7 @@ async def run(context) -> TaskResult:
                 context.process()
 
         def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_perf, home_base_armed, home_base_down
+            nonlocal response_value, response_time_perf, space_release_perf
             try:
                 k = e.key()
             except Exception:
@@ -386,7 +405,6 @@ async def run(context) -> TaskResult:
                 if space_release_perf is None:
                     space_release_perf = time.perf_counter()
                     context.process()
-                home_base_down = False
                 return
 
             if not response_enabled or response_value is not None:
@@ -419,15 +437,14 @@ async def run(context) -> TaskResult:
         context.widget.renderer = wait_renderer
         context.widget.update()
 
-        await wait_for(
-            context,
-            lambda: home_base_armed or abort_requested,
-            datetime.timedelta(hours=12),
-        )
+        # Wait until home-base is physically depressed, then begin fixation.
+        while not abort_requested and not key_tracker.is_down(int(home_key)):
+            await context.sleep(datetime.timedelta(milliseconds=10))
 
         if abort_requested:
             _set_key_press_handler(context.widget, None)
             _set_key_release_handler(context.widget, None)
+            context.widget.removeEventFilter(key_tracker)
             context.task_config["trial_index"] = tr_idx
             return TaskResult(False)
 
@@ -593,7 +610,7 @@ async def run(context) -> TaskResult:
             "movement_cue_duration_s": float(move_s),
             "movement_to_go_latency_s": float(go_on - movement_cue_on_perf) if go_on is not None else None,
             "home_base_key": cfg.home_base_key,
-            "home_base_armed": bool(home_base_armed),
+            "home_base_armed": True,
             "home_base_released": bool(space_release_perf is not None),
             "skipped": False,
         }
@@ -604,8 +621,10 @@ async def run(context) -> TaskResult:
         if abort_requested:
             _set_key_press_handler(context.widget, None)
             _set_key_release_handler(context.widget, None)
+            context.widget.removeEventFilter(key_tracker)
             return TaskResult(False)
 
     _set_key_press_handler(context.widget, None)
     _set_key_release_handler(context.widget, None)
+    context.widget.removeEventFilter(key_tracker)
     return TaskResult(True)
