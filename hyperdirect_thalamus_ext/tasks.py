@@ -4,6 +4,7 @@ from thalamus.task_controller.task_context import TaskDescription
 
 from . import stopgo_task
 from . import stopgoswitch_task
+from . import stopgoswitch_visual_task
 
 
 def tasks() -> typing.List[TaskDescription]:
@@ -19,5 +20,11 @@ def tasks() -> typing.List[TaskDescription]:
             "STOP/GO/SWITCH v2 (visual/auditory)",
             stopgoswitch_task.create_widget,
             stopgoswitch_task.run,
+        ),
+        TaskDescription(
+            "stopgoswitch_visual_v1",
+            "STOP/GO/SWITCH visual-only v1 (home-base)",
+            stopgoswitch_visual_task.create_widget,
+            stopgoswitch_visual_task.run,
         ),
     ]
