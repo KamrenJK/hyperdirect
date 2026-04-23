@@ -22,7 +22,7 @@ import random
 import time
 import typing
 
-from thalamus.qt import QColor, QFont, QObject, QPainter, QRect, Qt, QWidget, QVBoxLayout
+from thalamus.qt import QColor, QFont, QPainter, QRect, Qt, QWidget, QVBoxLayout
 from thalamus.task_controller.widgets import Form
 from thalamus.task_controller.util import animate, wait_for, TaskResult
 from thalamus import task_controller_pb2
@@ -37,10 +37,6 @@ KEY_MAP = {
     "b": Qt.Key.Key_B,
     "space": Qt.Key.Key_Space,
 }
-
-# Qt event type IDs for key events (avoids requiring QEvent export from thalamus.qt).
-_KEY_PRESS_EVENT_TYPE = 6
-_KEY_RELEASE_EVENT_TYPE = 7
 
 
 class Config(typing.NamedTuple):
@@ -243,45 +239,11 @@ def _with_counter(base_renderer, widget: QWidget, trial_idx: int, total: int) ->
     return render
 
 
-def _set_key_press_handler(widget: QWidget, handler: typing.Optional[typing.Callable]) -> None:
-    try:
-        widget.key_press_handler = handler
-    except Exception:
-        pass
-
-
 def _set_key_release_handler(widget: QWidget, handler: typing.Optional[typing.Callable]) -> None:
     try:
         widget.key_release_handler = handler
     except Exception:
         pass
-
-
-class _KeyStateTracker(QObject):
-    def __init__(self, parent: typing.Optional[QObject] = None) -> None:
-        super().__init__(parent)
-        self.down_keys: typing.Set[int] = set()
-
-    def is_down(self, key: int) -> bool:
-        return int(key) in self.down_keys
-
-    def eventFilter(self, _obj, event) -> bool:  # type: ignore[override]
-        try:
-            et = event.type()
-        except Exception:
-            return False
-
-        if et == _KEY_PRESS_EVENT_TYPE:
-            try:
-                self.down_keys.add(int(event.key()))
-            except Exception:
-                pass
-        elif et == _KEY_RELEASE_EVENT_TYPE:
-            try:
-                self.down_keys.discard(int(event.key()))
-            except Exception:
-                pass
-        return False
 
 
 def _eval_switch_success(arrow_dir: str, resp: typing.Optional[int]) -> bool:
@@ -315,13 +277,10 @@ async def _show_block_instruction(context, cfg: Config, block: str) -> None:
         pressed = True
         context.process()
 
-    old_press = getattr(context.widget, "key_press_handler", None)
     old_release = getattr(context.widget, "key_release_handler", None)
-    _set_key_press_handler(context.widget, key_handler)
     _set_key_release_handler(context.widget, key_handler)
     while not pressed:
         await context.sleep(datetime.timedelta(milliseconds=50))
-    _set_key_press_handler(context.widget, old_press)
     _set_key_release_handler(context.widget, old_release)
 
 
@@ -341,8 +300,6 @@ async def run(context) -> TaskResult:
     key_left = KEY_MAP.get(cfg.key_left.lower(), Qt.Key.Key_Q)
     key_right = KEY_MAP.get(cfg.key_right.lower(), Qt.Key.Key_P)
     home_key = KEY_MAP.get(cfg.home_base_key.lower(), Qt.Key.Key_B)
-    key_tracker = _KeyStateTracker(context.widget)
-    context.widget.installEventFilter(key_tracker)
 
     prev_block = None
     total_trials = len(schedule)
@@ -374,8 +331,10 @@ async def run(context) -> TaskResult:
 
         response_enabled = False
         abort_requested = False
-        def key_press_handler(e):
-            nonlocal response_value, response_time_perf, abort_requested
+        home_base_armed = False
+
+        def key_release_handler(e):
+            nonlocal response_value, response_time_perf, space_release_perf, abort_requested, home_base_armed
             try:
                 k = e.key()
                 mods = e.modifiers()
@@ -387,25 +346,11 @@ async def run(context) -> TaskResult:
                 context.process()
                 return
 
-            if not response_enabled or response_value is not None:
-                return
-            if k == key_left:
-                response_value = 1
-                response_time_perf = time.perf_counter()
-                context.process()
-            elif k == key_right:
-                response_value = 2
-                response_time_perf = time.perf_counter()
-                context.process()
-
-        def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_perf
-            try:
-                k = e.key()
-            except Exception:
-                return
-
             if k == home_key:
+                if not response_enabled:
+                    home_base_armed = True
+                    context.process()
+                    return
                 if space_release_perf is None:
                     space_release_perf = time.perf_counter()
                     context.process()
@@ -422,7 +367,6 @@ async def run(context) -> TaskResult:
                 response_time_perf = time.perf_counter()
                 context.process()
 
-        _set_key_press_handler(context.widget, key_press_handler)
         _set_key_release_handler(context.widget, key_release_handler)
 
         # Arm trial: next trial does not begin until home-base is pressed.
@@ -441,14 +385,15 @@ async def run(context) -> TaskResult:
         context.widget.renderer = wait_renderer
         context.widget.update()
 
-        # Wait until home-base is physically depressed, then begin fixation.
-        while not abort_requested and not key_tracker.is_down(int(home_key)):
-            await context.sleep(datetime.timedelta(milliseconds=10))
+        # Release-only fallback in this Thalamus build: arm on home-base key release.
+        await wait_for(
+            context,
+            lambda: home_base_armed or abort_requested,
+            datetime.timedelta(hours=12),
+        )
 
         if abort_requested:
-            _set_key_press_handler(context.widget, None)
             _set_key_release_handler(context.widget, None)
-            context.widget.removeEventFilter(key_tracker)
             context.task_config["trial_index"] = tr_idx
             return TaskResult(False)
 
@@ -614,7 +559,7 @@ async def run(context) -> TaskResult:
             "movement_cue_duration_s": float(move_s),
             "movement_to_go_latency_s": float(go_on - movement_cue_on_perf) if go_on is not None else None,
             "home_base_key": cfg.home_base_key,
-            "home_base_armed": True,
+            "home_base_armed": bool(home_base_armed),
             "home_base_released": bool(space_release_perf is not None),
             "skipped": False,
         }
@@ -623,12 +568,8 @@ async def run(context) -> TaskResult:
         context.task_config["trial_index"] = tr_idx + 1
 
         if abort_requested:
-            _set_key_press_handler(context.widget, None)
             _set_key_release_handler(context.widget, None)
-            context.widget.removeEventFilter(key_tracker)
             return TaskResult(False)
 
-    _set_key_press_handler(context.widget, None)
     _set_key_release_handler(context.widget, None)
-    context.widget.removeEventFilter(key_tracker)
     return TaskResult(True)
