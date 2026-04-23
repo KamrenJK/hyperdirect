@@ -383,11 +383,6 @@ async def run(context) -> TaskResult:
                 return
 
             if k == home_key:
-                # Some Canvas builds may not dispatch key-press callbacks; allow
-                # home-base arming/release timing via key-release as a fallback.
-                if not home_base_armed:
-                    home_base_armed = True
-                    context.process()
                 if space_release_perf is None:
                     space_release_perf = time.perf_counter()
                     context.process()
@@ -491,8 +486,6 @@ async def run(context) -> TaskResult:
                 context.widget.update()
                 cue_on_perf = time.perf_counter()
                 await context.sleep(datetime.timedelta(seconds=cfg.cue_duration_s))
-                context.widget.renderer = go_renderer
-                context.widget.update()
             elif trial_type in ("switch", "switch_ignore"):
                 # SWITCH cue: orange circle.
                 def composite_switch(p):
@@ -503,8 +496,6 @@ async def run(context) -> TaskResult:
                 context.widget.update()
                 cue_on_perf = time.perf_counter()
                 await context.sleep(datetime.timedelta(seconds=cfg.cue_duration_s))
-                context.widget.renderer = go_renderer
-                context.widget.update()
 
         if trial_type != "go":
             cue_task = asyncio.get_event_loop().create_task(deliver_control_cue())
