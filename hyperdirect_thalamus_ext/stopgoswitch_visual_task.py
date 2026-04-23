@@ -22,7 +22,7 @@ import random
 import time
 import typing
 
-from thalamus.qt import QColor, QEvent, QFont, QObject, QPainter, QRect, Qt, QWidget, QVBoxLayout
+from thalamus.qt import QColor, QFont, QObject, QPainter, QRect, Qt, QWidget, QVBoxLayout
 from thalamus.task_controller.widgets import Form
 from thalamus.task_controller.util import animate, wait_for, TaskResult
 from thalamus import task_controller_pb2
@@ -37,6 +37,10 @@ KEY_MAP = {
     "b": Qt.Key.Key_B,
     "space": Qt.Key.Key_Space,
 }
+
+# Qt event type IDs for key events (avoids requiring QEvent export from thalamus.qt).
+_KEY_PRESS_EVENT_TYPE = 6
+_KEY_RELEASE_EVENT_TYPE = 7
 
 
 class Config(typing.NamedTuple):
@@ -267,12 +271,12 @@ class _KeyStateTracker(QObject):
         except Exception:
             return False
 
-        if et == QEvent.Type.KeyPress:
+        if et == _KEY_PRESS_EVENT_TYPE:
             try:
                 self.down_keys.add(int(event.key()))
             except Exception:
                 pass
-        elif et == QEvent.Type.KeyRelease:
+        elif et == _KEY_RELEASE_EVENT_TYPE:
             try:
                 self.down_keys.discard(int(event.key()))
             except Exception:
