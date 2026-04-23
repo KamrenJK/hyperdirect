@@ -239,6 +239,20 @@ def _with_counter(base_renderer, widget: QWidget, trial_idx: int, total: int) ->
     return render
 
 
+def _set_key_press_handler(widget: QWidget, handler: typing.Optional[typing.Callable]) -> None:
+    try:
+        widget.key_press_handler = handler
+    except Exception:
+        pass
+
+
+def _set_key_release_handler(widget: QWidget, handler: typing.Optional[typing.Callable]) -> None:
+    try:
+        widget.key_release_handler = handler
+    except Exception:
+        pass
+
+
 def _eval_switch_success(arrow_dir: str, resp: typing.Optional[int]) -> bool:
     if resp is None:
         return False
@@ -270,14 +284,14 @@ async def _show_block_instruction(context, cfg: Config, block: str) -> None:
         pressed = True
         context.process()
 
-    old_press = context.widget.key_press_handler
-    old_release = context.widget.key_release_handler
-    context.widget.key_press_handler = key_handler
-    context.widget.key_release_handler = key_handler
+    old_press = getattr(context.widget, "key_press_handler", None)
+    old_release = getattr(context.widget, "key_release_handler", None)
+    _set_key_press_handler(context.widget, key_handler)
+    _set_key_release_handler(context.widget, key_handler)
     while not pressed:
         await context.sleep(datetime.timedelta(milliseconds=50))
-    context.widget.key_press_handler = old_press
-    context.widget.key_release_handler = old_release
+    _set_key_press_handler(context.widget, old_press)
+    _set_key_release_handler(context.widget, old_release)
 
 
 @animate(60)
@@ -362,14 +376,19 @@ async def run(context) -> TaskResult:
                 context.process()
 
         def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_perf, home_base_down
+            nonlocal response_value, response_time_perf, space_release_perf, home_base_armed, home_base_down
             try:
                 k = e.key()
             except Exception:
                 return
 
             if k == home_key:
-                if home_base_down and space_release_perf is None:
+                # Some Canvas builds may not dispatch key-press callbacks; allow
+                # home-base arming/release timing via key-release as a fallback.
+                if not home_base_armed:
+                    home_base_armed = True
+                    context.process()
+                if space_release_perf is None:
                     space_release_perf = time.perf_counter()
                     context.process()
                 home_base_down = False
@@ -386,8 +405,8 @@ async def run(context) -> TaskResult:
                 response_time_perf = time.perf_counter()
                 context.process()
 
-        context.widget.key_press_handler = key_press_handler
-        context.widget.key_release_handler = key_release_handler
+        _set_key_press_handler(context.widget, key_press_handler)
+        _set_key_release_handler(context.widget, key_release_handler)
 
         # Arm trial: next trial does not begin until home-base is pressed.
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="home_base_wait"))
@@ -412,8 +431,8 @@ async def run(context) -> TaskResult:
         )
 
         if abort_requested:
-            context.widget.key_press_handler = None
-            context.widget.key_release_handler = None
+            _set_key_press_handler(context.widget, None)
+            _set_key_release_handler(context.widget, None)
             context.task_config["trial_index"] = tr_idx
             return TaskResult(False)
 
@@ -592,10 +611,10 @@ async def run(context) -> TaskResult:
         context.task_config["trial_index"] = tr_idx + 1
 
         if abort_requested:
-            context.widget.key_press_handler = None
-            context.widget.key_release_handler = None
+            _set_key_press_handler(context.widget, None)
+            _set_key_release_handler(context.widget, None)
             return TaskResult(False)
 
-    context.widget.key_press_handler = None
-    context.widget.key_release_handler = None
+    _set_key_press_handler(context.widget, None)
+    _set_key_release_handler(context.widget, None)
     return TaskResult(True)
