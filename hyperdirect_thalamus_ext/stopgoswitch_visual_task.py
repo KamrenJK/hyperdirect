@@ -263,7 +263,7 @@ async def _show_block_instruction(context, cfg: Config, block: str) -> None:
         line = "CONTROL block: ignore cues and respond to GO target as normal."
 
     cue_line = "Visual cues: GO = green, STOP = red, SWITCH = orange."
-    home_line = f"Home base: hold {cfg.home_base_key.upper()} to arm trial, release after GO, then return to {cfg.home_base_key.upper()}."
+    home_line = f"Home base key: {cfg.home_base_key.upper()} (release timing is logged relative to GO)."
 
     text = f"{block}\n{line}\n{cue_line}\n{home_line}\nPress any key to continue."
     renderer = _make_text_renderer(context.widget, text, cfg.text_size, QColor(255, 255, 255))
@@ -331,10 +331,8 @@ async def run(context) -> TaskResult:
 
         response_enabled = False
         abort_requested = False
-        home_base_armed = False
-
         def key_release_handler(e):
-            nonlocal response_value, response_time_perf, space_release_perf, abort_requested, home_base_armed
+            nonlocal response_value, response_time_perf, space_release_perf, abort_requested
             try:
                 k = e.key()
                 mods = e.modifiers()
@@ -348,8 +346,6 @@ async def run(context) -> TaskResult:
 
             if k == home_key:
                 if not response_enabled:
-                    home_base_armed = True
-                    context.process()
                     return
                 if space_release_perf is None:
                     space_release_perf = time.perf_counter()
@@ -369,35 +365,7 @@ async def run(context) -> TaskResult:
 
         _set_key_release_handler(context.widget, key_release_handler)
 
-        # Arm trial: next trial does not begin until home-base is pressed.
-        await context.servicer.publish_state(task_controller_pb2.BehavState(state="home_base_wait"))
-        wait_renderer = _with_counter(
-            _make_text_renderer(
-                context.widget,
-                f"Press and hold {cfg.home_base_key.upper()} to start",
-                max(40, cfg.text_size // 2),
-                QColor(200, 200, 200),
-            ),
-            context.widget,
-            tr_idx,
-            len(schedule),
-        )
-        context.widget.renderer = wait_renderer
-        context.widget.update()
-
-        # Release-only fallback in this Thalamus build: arm on home-base key release.
-        await wait_for(
-            context,
-            lambda: home_base_armed or abort_requested,
-            datetime.timedelta(hours=12),
-        )
-
-        if abort_requested:
-            _set_key_release_handler(context.widget, None)
-            context.task_config["trial_index"] = tr_idx
-            return TaskResult(False)
-
-        # Fixation.
+        # Fixation starts immediately at each trial without home-base gating.
         await context.servicer.publish_state(task_controller_pb2.BehavState(state="fixation"))
         fix_renderer = _with_counter(
             _make_text_renderer(context.widget, "+", cfg.text_size, QColor(255, 255, 255)),
@@ -559,7 +527,7 @@ async def run(context) -> TaskResult:
             "movement_cue_duration_s": float(move_s),
             "movement_to_go_latency_s": float(go_on - movement_cue_on_perf) if go_on is not None else None,
             "home_base_key": cfg.home_base_key,
-            "home_base_armed": bool(home_base_armed),
+            "home_base_armed": None,
             "home_base_released": bool(space_release_perf is not None),
             "skipped": False,
         }
